@@ -19,8 +19,10 @@ MESES = (
     "Dezembro",
 )
 
-_PADRAO_ISO = re.compile(r"^(\d{4})-(\d{1,2})$")
+_PADRAO_ISO = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})$")
+_PADRAO_MES_ANO = re.compile(r"^(\d{4})-(\d{1,2})$")
 _PADRAO_BR = re.compile(r"^(\d{1,2})/(\d{4})$")
+_PADRAO_DATA_BR = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
 _PADRAO_BARRA = re.compile(r"^(\d{4})/(\d{1,2})$")
 
 
@@ -54,6 +56,10 @@ class Competencia:
             texto = value.strip()
             if m := _PADRAO_ISO.match(texto):
                 return cls(int(m.group(1)), int(m.group(2)))
+            if m := _PADRAO_MES_ANO.match(texto):
+                return cls(int(m.group(1)), int(m.group(2)))
+            if m := _PADRAO_DATA_BR.match(texto):
+                return cls(int(m.group(3)), int(m.group(2)))
             if m := _PADRAO_BR.match(texto):
                 return cls(int(m.group(2)), int(m.group(1)))
             if m := _PADRAO_BARRA.match(texto):

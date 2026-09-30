@@ -77,6 +77,8 @@ def test_competencia_formats() -> None:
     assert Competencia.parse(Competencia(2026, 8)) == Competencia(2026, 8)
     assert Competencia.parse((__import__("datetime").date(2026, 8, 17))) == Competencia(2026, 8)
     assert Competencia.parse((2026, 8)) == Competencia(2026, 8)
+    assert Competencia.parse("2026-08-17") == Competencia(2026, 8)
+    assert Competencia.parse("17/08/2026") == Competencia(2026, 8)
 
 
 def test_competencia_labels_e_fechamento_ano() -> None:
