@@ -60,6 +60,7 @@ class IndexerMetadata:
     updated_at: str
     cobertura: Cobertura
     total_records: int
+    note: str = ""
 
     def __post_init__(self) -> None:
         if self.kind not in KINDS:
@@ -213,6 +214,7 @@ def metadados_de_arquivo(dados: dict, key: str, nome: str, kind: str) -> Indexer
         updated_at=str(meta.get("updatedAt", "")),
         cobertura=Cobertura(inicio=inicio, fim=fim),
         total_records=len(fatores),
+        note=str(meta.get("note", "")),
     )
 
 

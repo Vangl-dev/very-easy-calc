@@ -1,4 +1,4 @@
-from app.indexers import taxa_legal, tjsp  # noqa: F401
+from app.indexers import salario_minimo, taxa_legal, tjsp  # noqa: F401
 from app.indexers.base import (
     CoverageError,
     IndexerError,
@@ -19,6 +19,7 @@ __all__ = [
     "listar_metadata",
     "obter",
     "registrar",
+    "salario_minimo",
     "taxa_legal",
     "tjsp",
 ]

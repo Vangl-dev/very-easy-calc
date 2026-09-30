@@ -54,6 +54,14 @@ def round_factor(value: object, places: int = 6) -> Decimal:
     return to_decimal(value).quantize(quantum, rounding=ROUND_HALF_UP)
 
 
+def percentual_txt(taxa: object) -> str:
+    valor = (to_decimal(taxa) * 100).normalize()
+    texto = format(valor, "f")
+    if "." in texto:
+        texto = texto.rstrip("0").rstrip(".")
+    return f"{texto}%"
+
+
 def brl(value: object) -> str:
     numero = round_brl(value)
     sinal = "-" if numero < 0 else ""

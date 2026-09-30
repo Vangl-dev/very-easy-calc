@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from app.core.competencia import Competencia
-from app.core.money import round_brl, to_decimal
+from app.core.money import percentual_txt, round_brl, to_decimal
 from app.indexers import obter
 from app.indexers.taxa_legal import KEY as TaxaLegalKey
 
@@ -165,12 +165,6 @@ def _taxa_legal_de(dia: date) -> Decimal:
     return obter(TaxaLegalKey).taxa(Competencia(dia.year, dia.month))
 
 
-def _percentual(taxa: Decimal) -> str:
-    valor = (to_decimal(taxa) * 100).normalize()
-    texto = format(valor, "f").rstrip("0").rstrip(".")
-    return f"{texto}%"
-
-
 def _intervalos_nao_cobertos(inicio: date, fim: date, trechos: list[TrechoJuros]) -> list[str]:
     pedacos = sorted((t.inicio, t.fim) for t in trechos)
     faltando: list[str] = []
@@ -227,17 +221,17 @@ def calcular_juros(
         taxa = to_decimal(cfg.taxa)
         if cfg.unidade == UNIDADE_ANUAL:
             valor = round_brl(_juros_anuais(base, inicio, fim, taxa))
-            rotulo = f"{_percentual(taxa)} a.a. (simples, {_dias(inicio, fim)} dias / 365)"
+            rotulo = f"{percentual_txt(taxa)} a.a. (simples, {_dias(inicio, fim)} dias / 365)"
         else:
             valor = round_brl(_por_mes(base, inicio, fim, lambda _d: taxa))
-            rotulo = f"{_percentual(taxa)} ao mês (proporcional aos dias)"
+            rotulo = f"{percentual_txt(taxa)} ao mês (proporcional aos dias)"
         trecho = TrechoJuros(
             rotulo=rotulo,
             inicio=inicio,
             fim=fim,
             dias=_dias(inicio, fim),
             taxa=taxa,
-            taxa_rotulo=_percentual(taxa),
+            taxa_rotulo=percentual_txt(taxa),
             valor=valor,
         )
         return ResultadoJuros(
@@ -268,7 +262,7 @@ def calcular_juros(
                     fim=fim_regra,
                     dias=dias,
                     taxa=taxa,
-                    taxa_rotulo=f"{_percentual(taxa)} a.a.",
+                    taxa_rotulo=f"{percentual_txt(taxa)} a.a.",
                     valor=valor,
                 )
             )
@@ -282,7 +276,7 @@ def calcular_juros(
                     fim=fim_regra,
                     dias=dias,
                     taxa=taxa,
-                    taxa_rotulo=f"{_percentual(taxa)} ao mês",
+                    taxa_rotulo=f"{percentual_txt(taxa)} ao mês",
                     valor=valor,
                 )
             )
