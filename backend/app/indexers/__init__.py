@@ -1,3 +1,4 @@
+from app.indexers import taxa_legal, tjsp  # noqa: F401
 from app.indexers.base import (
     CoverageError,
     IndexerError,
@@ -8,7 +9,6 @@ from app.indexers.base import (
     obter,
     registrar,
 )
-from app.indexers import tjsp  # noqa: F401
 
 __all__ = [
     "CoverageError",
@@ -19,5 +19,6 @@ __all__ = [
     "listar_metadata",
     "obter",
     "registrar",
+    "taxa_legal",
     "tjsp",
 ]

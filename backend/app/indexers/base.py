@@ -75,7 +75,9 @@ class IndexerMetadata:
         return dados
 
 
-def validar_serie(series: Mapping[Competencia, Decimal], nome: str) -> Cobertura:
+def validar_serie(
+    series: Mapping[Competencia, Decimal], nome: str, *, permitir_zero: bool = False
+) -> Cobertura:
     if not series:
         raise SeriesIntegrityError(f"série vazia para '{nome}'")
     ordenadas = sorted(series)
@@ -94,9 +96,9 @@ def validar_serie(series: Mapping[Competencia, Decimal], nome: str) -> Cobertura
         valor = series[competencia]
         if not isinstance(valor, Decimal):
             raise SeriesIntegrityError(f"valor não decimal em '{nome}' na competência {competencia.label}")
-        if valor <= 0:
+        if valor < 0 or (valor == 0 and not permitir_zero):
             raise SeriesIntegrityError(
-                f"valor não positivo em '{nome}' na competência {competencia.label}: {valor}"
+                f"valor inválido em '{nome}' na competência {competencia.label}: {valor}"
             )
     return Cobertura(inicio=inicio, fim=fim)
 
@@ -106,7 +108,11 @@ class MonthlyIndexer(ABC):
         self._metadata = metadata
         self._series = dict(sorted(series.items()))
         self._arquivo_dados: Path | None = None
-        cobertura = validar_serie(self._series, metadata.name)
+        cobertura = validar_serie(
+            self._series,
+            metadata.name,
+            permitir_zero=metadata.kind == KIND_JUROS,
+        )
         if cobertura != metadata.cobertura:
             raise SeriesIntegrityError(
                 f"cobertura declarada ({metadata.cobertura.inicio.label} a "

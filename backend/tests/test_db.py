@@ -16,10 +16,12 @@ def session():
     db.reset()
 
 
-def test_seed_registra_tabela_pratica(session) -> None:
+def test_seed_registra_bases_indexadoras(session) -> None:
     criadas = db.seed_indexer_versions(session)
-    assert len(criadas) == 1
-    registro = session.scalar(select(IndexerVersion))
+    assert len(criadas) == 2
+    registro = session.scalar(
+        select(IndexerVersion).where(IndexerVersion.key == "tjsp_tabela_pratica")
+    )
     assert registro is not None
     assert registro.key == "tjsp_tabela_pratica"
     assert registro.version == "2026.08"
@@ -31,10 +33,10 @@ def test_seed_registra_tabela_pratica(session) -> None:
 
 
 def test_seed_e_idempotente(session) -> None:
-    assert len(db.seed_indexer_versions(session)) == 1
+    assert len(db.seed_indexer_versions(session)) == 2
     assert len(db.seed_indexer_versions(session)) == 0
     registros = session.scalars(select(IndexerVersion)).all()
-    assert len(registros) == 1
+    assert len(registros) == 2
 
 
 def test_versoes_distintas_coexistem(session) -> None:
@@ -56,4 +58,4 @@ def test_versoes_distintas_coexistem(session) -> None:
     )
     session.flush()
     registros = session.scalars(select(IndexerVersion)).all()
-    assert len(registros) == 2
+    assert len(registros) == 3

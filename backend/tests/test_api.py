@@ -30,9 +30,8 @@ def test_indexers_listados_e_versionados(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["app_version"] == "1.0.0"
-    assert len(body["indexers"]) == 1
-    item = body["indexers"][0]
-    assert item["key"] == "tjsp_tabela_pratica"
+    assert len(body["indexers"]) == 2
+    item = next(i for i in body["indexers"] if i["key"] == "tjsp_tabela_pratica")
     assert item["version"] == "2026.08"
     assert item["registrada"] is True
     assert item["cobertura"] == {"inicio": "01/1992", "fim": "08/2026", "total": 416}

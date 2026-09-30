@@ -1,0 +1,195 @@
+{
+  "metadata": {
+    "source": "Banco Central do Brasil",
+    "sourceUrl": "https://api.bcb.gov.br/dados/serie/bcdata.sgs.29543/dados?formato=json",
+    "sourceLabel": "Taxa Legal - Serie SGS 29543 do Banco Central do Brasil",
+    "version": "2026.09",
+    "updatedAt": "2026-09-30",
+    "lastMonth": "2026-09",
+    "totalRecords": 26
+  },
+  "factors": [
+    {
+      "year": 2024,
+      "month": 8,
+      "factor": 0.00605306,
+      "sourceValue": "0.605306",
+      "sourceDate": "01/08/2024"
+    },
+    {
+      "year": 2024,
+      "month": 9,
+      "factor": 0.00676227,
+      "sourceValue": "0.676227",
+      "sourceDate": "01/09/2024"
+    },
+    {
+      "year": 2024,
+      "month": 10,
+      "factor": 0.00704241,
+      "sourceValue": "0.704241",
+      "sourceDate": "01/10/2024"
+    },
+    {
+      "year": 2024,
+      "month": 11,
+      "factor": 0.00385874,
+      "sourceValue": "0.385874",
+      "sourceDate": "01/11/2024"
+    },
+    {
+      "year": 2024,
+      "month": 12,
+      "factor": 0.00171924,
+      "sourceValue": "0.171924",
+      "sourceDate": "01/12/2024"
+    },
+    {
+      "year": 2025,
+      "month": 1,
+      "factor": 0.00589427,
+      "sourceValue": "0.589427",
+      "sourceDate": "01/01/2025"
+    },
+    {
+      "year": 2025,
+      "month": 2,
+      "factor": 0.00902209,
+      "sourceValue": "0.902209",
+      "sourceDate": "01/02/2025"
+    },
+    {
+      "year": 2025,
+      "month": 3,
+      "factor": 0.0,
+      "sourceValue": "0.000000",
+      "sourceDate": "01/03/2025"
+    },
+    {
+      "year": 2025,
+      "month": 4,
+      "factor": 0.00321969,
+      "sourceValue": "0.321969",
+      "sourceDate": "01/04/2025"
+    },
+    {
+      "year": 2025,
+      "month": 5,
+      "factor": 0.006232,
+      "sourceValue": "0.623200",
+      "sourceDate": "01/05/2025"
+    },
+    {
+      "year": 2025,
+      "month": 6,
+      "factor": 0.00775982,
+      "sourceValue": "0.775982",
+      "sourceDate": "01/06/2025"
+    },
+    {
+      "year": 2025,
+      "month": 7,
+      "factor": 0.0083488,
+      "sourceValue": "0.834880",
+      "sourceDate": "01/07/2025"
+    },
+    {
+      "year": 2025,
+      "month": 8,
+      "factor": 0.00942622,
+      "sourceValue": "0.942622",
+      "sourceDate": "01/08/2025"
+    },
+    {
+      "year": 2025,
+      "month": 9,
+      "factor": 0.01305984,
+      "sourceValue": "1.305984",
+      "sourceDate": "01/09/2025"
+    },
+    {
+      "year": 2025,
+      "month": 10,
+      "factor": 0.00736394,
+      "sourceValue": "0.736394",
+      "sourceDate": "01/10/2025"
+    },
+    {
+      "year": 2025,
+      "month": 11,
+      "factor": 0.01093764,
+      "sourceValue": "1.093764",
+      "sourceDate": "01/11/2025"
+    },
+    {
+      "year": 2025,
+      "month": 12,
+      "factor": 0.00851001,
+      "sourceValue": "0.851001",
+      "sourceDate": "01/12/2025"
+    },
+    {
+      "year": 2026,
+      "month": 1,
+      "factor": 0.0096751,
+      "sourceValue": "0.967510",
+      "sourceDate": "01/01/2026"
+    },
+    {
+      "year": 2026,
+      "month": 2,
+      "factor": 0.00962232,
+      "sourceValue": "0.962232",
+      "sourceDate": "01/02/2026"
+    },
+    {
+      "year": 2026,
+      "month": 3,
+      "factor": 0.00155714,
+      "sourceValue": "0.155714",
+      "sourceDate": "01/03/2026"
+    },
+    {
+      "year": 2026,
+      "month": 4,
+      "factor": 0.00768672,
+      "sourceValue": "0.768672",
+      "sourceDate": "01/04/2026"
+    },
+    {
+      "year": 2026,
+      "month": 5,
+      "factor": 0.00198293,
+      "sourceValue": "0.198293",
+      "sourceDate": "01/05/2026"
+    },
+    {
+      "year": 2026,
+      "month": 6,
+      "factor": 0.00450641,
+      "sourceValue": "0.450641",
+      "sourceDate": "01/06/2026"
+    },
+    {
+      "year": 2026,
+      "month": 7,
+      "factor": 0.00706607,
+      "sourceValue": "0.706607",
+      "sourceDate": "01/07/2026"
+    },
+    {
+      "year": 2026,
+      "month": 8,
+      "factor": 0.01154527,
+      "sourceValue": "1.154527",
+      "sourceDate": "01/08/2026"
+    },
+    {
+      "year": 2026,
+      "month": 9,
+      "factor": 0.01499119,
+      "sourceValue": "1.499119",
+      "sourceDate": "01/09/2026"
+    }
+  ]
+}
