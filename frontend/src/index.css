@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply antialiased;
+  }
+
+  body {
+    @apply m-0 min-h-screen bg-slate-50 text-ink-900 font-sans;
+  }
+
+  #root {
+    @apply min-h-screen;
+  }
+}
+
+@layer components {
+  .tooltip-host {
+    @apply relative inline-flex;
+  }
+
+  .tooltip-bubble {
+    @apply pointer-events-none absolute left-1/2 top-full z-50 mt-2 w-64 -translate-x-1/2 rounded-lg border border-ink-200 bg-ink-950 px-3 py-2 text-xs leading-relaxed text-white opacity-0 shadow-lg transition-opacity duration-150;
+  }
+
+  .tooltip-host:hover .tooltip-bubble,
+  .tooltip-host:focus-within .tooltip-bubble {
+    @apply opacity-100;
+  }
+}
