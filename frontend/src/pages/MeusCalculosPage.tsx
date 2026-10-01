@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, formatarDataHora, rotuloTipoCalculo } from "../lib/api";
 import type { CalculoResumo } from "../types/api";
 import { Button } from "../components/ui/Button";
@@ -9,7 +9,7 @@ import { Table, type Columna } from "../components/ui/Table";
 import { Tooltip } from "../components/ui/Tooltip";
 
 export function MeusCalculosPage() {
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const codigoSelecionado = params.get("codigo");
   const [calculos, setCalculos] = useState<CalculoResumo[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -47,13 +47,12 @@ export function MeusCalculosPage() {
       key: "codigo",
       header: "Código",
       render: (linha) => (
-        <button
-          type="button"
-          onClick={() => setParams({ codigo: linha.codigo })}
+        <Link
+          to={`/calculos/${encodeURIComponent(linha.codigo)}`}
           className="font-mono text-xs font-semibold text-brand-700 hover:underline"
         >
           {linha.codigo}
-        </button>
+        </Link>
       ),
     },
     {

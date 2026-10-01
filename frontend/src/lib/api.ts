@@ -82,6 +82,9 @@ export const api = {
 
   criarCalculo: (payload: CalculoRequestPayload) =>
     postJson<CalculoCriado>("/api/calculos", payload),
+
+  obterCalculo: (codigo: string) =>
+    getJson<CalculoCriado>(`/api/calculos/${encodeURIComponent(codigo)}`),
 };
 
 export function formatarDataHora(iso: string): string {

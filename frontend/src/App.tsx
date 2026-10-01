@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/layout/AppShell";
+import { ResultadoCalculoPage } from "./features/resultado/ResultadoCalculoPage";
 import { BasesPage } from "./pages/BasesPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { MeusCalculosPage } from "./pages/MeusCalculosPage";
@@ -11,6 +12,7 @@ export default function App() {
       <Route element={<AppShell />}>
         <Route index element={<DashboardPage />} />
         <Route path="novo-calculo" element={<NovoCalculoPage />} />
+        <Route path="calculos/:codigo" element={<ResultadoCalculoPage />} />
         <Route path="meus-calculos" element={<MeusCalculosPage />} />
         <Route path="bases" element={<BasesPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

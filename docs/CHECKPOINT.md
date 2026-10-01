@@ -1,6 +1,6 @@
-# Ponto de interrupção — Frontend Cível por VERBAS (commitada)
+# Ponto de interrupção — UX Cível: lançamento simples + resultado (commitada)
 
-Salvo em 01/10/2026. Último commit: *Frontend Cível: formulário por VERBAS com datas independentes*.
+Salvo em 01/10/2026. Último commit: *UX Cível: lançamento simples + tela de resultado auditável*.
 
 ## Como retomar
 
@@ -9,40 +9,35 @@ cd /home/vanessa/Projetos/very-easy-calc/backend && .venv/bin/python -m pytest
 cd /home/vanessa/Projetos/very-easy-calc/frontend && npm run build
 ```
 
-Dev:
-
-```bash
-cd backend && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001
-cd frontend && npm run dev   # http://localhost:5173
-```
+Dev: backend `:8001` · frontend `http://localhost:5173`
 
 ## Estado
 
 - Backend: **184 testes verdes**
 - Frontend: `npm run build` OK
-- Formulário Cível envia `verbas[]`
+- Fluxo Cível: lançamento → `POST` → `/calculos/:codigo`
 
-## Frontend Cível por verbas
+## UX Etapa 9B
 
-`/novo-calculo?tipo=parcelas`:
+### Tela 1 — Lançamento simples (`/novo-calculo?tipo=parcelas`)
 
-- Identificação + **data-base do cálculo** (referência)
-- Botão **+ Adicionar verba**
-- Cada verba em Card independente:
-  - nome, valor, data-base/vencimento
-  - correção: aplicar/não, **desde**, até, indexador
-  - juros: aplicar/não, **desde**, até, modalidade/taxa/base
-  - multa/honorários opcionais
-  - pagamentos da verba
-- Revisão lista cada verba com seus marcos
-- Total geral **após envio**, vindo do backend
+- Identificação + **data da atualização**
+- Tabela: **Verba | Valor | Início correção | Início juros**
+- `+ Incluir verba`
+- `Configurar detalhes` expande painel avançado (fim correção/juros, indexador, modalidade, multa, honorários, pagamentos)
+- `Gerar cálculo` → navega para o resultado
 
-Payload: `tipo=parcelas` + `verbas[]` (configs globais neutras). Payload antigo com `parcelas[]` continua suportado pela API.
+### Tela 2 — Resultado (`/calculos/:codigo`)
 
-React não calcula correção, juros ou totais.
+- Resumo do backend (total, saldo, principal…)
+- `TabelaAuditoria`: Verba, Competência, Vencimento, Valor original, Início correção, Correção, Início juros, Juros, Multa, Honorários, Pagamento, Saldo, Total
+- Header fixo, 1ª coluna sticky, scroll horizontal, agrupamento por verba, totais no rodapé (valores do backend)
+- Ações: **Baixar PDF**, **Salvar XLSX**, **Copiar tabela**, **Voltar/Editar cálculo**
+
+Motor/API intactos. Payload `verbas[]` inalterado.
 
 ## Próximas etapas
 
-- Editor avançado de parcelas por verba
-- Detalhe de verbas no PDF/XLSX (campos já na memória 1.2)
+- Prefill de edição a partir de cálculo salvo
 - Overrides de índices na UI de Bases
+- Exportar tabela com o PDF/XLSX (já gerados no backend)

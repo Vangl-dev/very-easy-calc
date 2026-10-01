@@ -2,13 +2,13 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Message } from "../components/ui/Message";
 import { FormAlimentos } from "../features/novo-calculo/FormAlimentos";
 import { FormAtualizacao } from "../features/novo-calculo/FormAtualizacao";
-import { FormCivel } from "../features/novo-calculo/FormCivel";
+import { FormCivel } from "../features/civel/FormCivel";
 
 const tipos = [
   {
     id: "parcelas",
-    titulo: "Cálculo Cível (parcelas)",
-    resumo: "Parcelas com correção, juros, multa, honorários e pagamentos.",
+    titulo: "Cálculo Cível (verbas)",
+    resumo: "Lançamento simples de verbas com datas independentes.",
   },
   {
     id: "alimentos",
