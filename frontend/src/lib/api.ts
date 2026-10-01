@@ -27,8 +27,7 @@ export class ErroApi extends Error {
     this.corpo = corpo;
     this.coberturaInsuficiente =
       corpo.erro === "cobertura_insuficiente" ||
-      corpo.detail?.erro === "cobertura_insuficiente" ||
-      status === 422;
+      corpo.detail?.erro === "cobertura_insuficiente";
   }
 }
 

@@ -111,7 +111,28 @@ export interface ParcelaManualPayload {
   juros?: ConfigJurosPayload | null;
 }
 
-export interface CalculoRequestPayload {
+export interface RegraAlimentoPayload {
+  inicio: string;
+  fim?: string | null;
+  tipo: "salario_minimo" | "fixo";
+  percentual?: string | null;
+  valor?: string | null;
+  descricao?: string;
+}
+
+export interface AlimentosPayload {
+  regras: RegraAlimentoPayload[];
+  ate: string;
+  dia_vencimento?: number;
+}
+
+export interface ValorBasePayload {
+  valor: string;
+  data_base: string;
+  descricao?: string;
+}
+
+export interface CalculoCivelPayload {
   tipo: "parcelas";
   titulo: string;
   processo: string;
@@ -124,6 +145,39 @@ export interface CalculoRequestPayload {
   honorarios: ConfigEncargoPayload;
   pagamentos?: PagamentoPayload[];
 }
+
+export interface CalculoAlimentosPayload {
+  tipo: "alimentos";
+  titulo: string;
+  processo: string;
+  parte: string;
+  data_base: string;
+  alimentos: AlimentosPayload;
+  correcao?: ConfigCorrecaoPayload | null;
+  juros?: ConfigJurosPayload | null;
+  multa?: ConfigEncargoPayload | null;
+  honorarios?: ConfigEncargoPayload | null;
+  pagamentos?: PagamentoPayload[];
+}
+
+export interface CalculoAtualizacaoPayload {
+  tipo: "atualizacao";
+  titulo: string;
+  processo: string;
+  parte: string;
+  data_base: string;
+  data_final?: string | null;
+  valor_base: ValorBasePayload;
+  correcao?: ConfigCorrecaoPayload | null;
+  juros?: ConfigJurosPayload | null;
+  multa?: ConfigEncargoPayload | null;
+  honorarios?: ConfigEncargoPayload | null;
+}
+
+export type CalculoRequestPayload =
+  | CalculoCivelPayload
+  | CalculoAlimentosPayload
+  | CalculoAtualizacaoPayload;
 
 export interface ErroApiBody {
   erro?: string;
