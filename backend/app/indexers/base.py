@@ -143,6 +143,11 @@ class MonthlyIndexer(ABC):
 
     def valor(self, competencia: Competencia) -> Decimal:
         comp = Competencia.parse(competencia)
+        from app.indexers.overrides import override_ativo
+
+        manual = override_ativo(self._metadata.key, comp)
+        if manual is not None:
+            return manual.valor
         try:
             return self._series[comp]
         except KeyError as exc:

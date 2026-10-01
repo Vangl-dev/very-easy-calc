@@ -66,12 +66,34 @@ class ParcelaManualSchema(BaseModel):
     juros: ConfigJurosSchema | None = None
 
 
+class ValorBaseSchema(BaseModel):
+    valor: str
+    data_base: str
+    descricao: str = ""
+
+
+class OverrideIndexadorSchema(BaseModel):
+    competencia: str
+    valor: str
+    fonte: str
+    observacao: str = ""
+
+    @field_validator("fonte")
+    @classmethod
+    def _fonte_obrigatoria(cls, v: str) -> str:
+        if not str(v).strip():
+            raise ValueError("fonte é obrigatória no cadastro manual")
+        return v.strip()
+
+
 class CalculoRequest(BaseModel):
-    tipo: Literal["alimentos", "parcelas"]
+    tipo: Literal["alimentos", "parcelas", "atualizacao"]
     titulo: str = ""
     processo: str = ""
     parte: str = ""
     data_base: str
+    data_final: str | None = None
+    valor_base: ValorBaseSchema | None = None
     alimentos: AlimentosSchema | None = None
     parcelas: list[ParcelaManualSchema] | None = None
     correcao: ConfigCorrecaoSchema | None = None

@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    DateTime,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -31,6 +37,25 @@ class IndexerVersion(Base):
     total_records: Mapped[int] = mapped_column(Integer, nullable=False)
     content_sha256: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     registered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+
+class IndexerOverride(Base):
+    """Cadastro manual de valor de indexador (não substitui histórico oficial)."""
+
+    __tablename__ = "indexer_overrides"
+    __table_args__ = (
+        UniqueConstraint("key", "competencia", name="uq_override_key_competencia"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    competencia: Mapped[str] = mapped_column(String(7), nullable=False)
+    valor: Mapped[str] = mapped_column(String(32), nullable=False)
+    fonte: Mapped[str] = mapped_column(String(255), nullable=False)
+    observacao: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
     )
 

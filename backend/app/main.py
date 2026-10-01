@@ -9,13 +9,14 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.schemas import CalculoRequest
+from app.api.schemas import CalculoRequest, OverrideIndexadorSchema
 from app.api.service import executar_calculo
 from app.core.config import get_settings
 from app.db import get_session, init_db, seed_indexer_versions, session_scope
 from app.export.pdf import gerar_pdf
 from app.export.xlsx import gerar_xlsx
 from app.indexers import CoverageError, IndexerError, listar_metadata, obter
+from app.indexers.overrides import cadastrar_override, cobertura_efetiva, listar_overrides
 from app.models.entities import Calculo, IndexerVersion
 
 
@@ -77,6 +78,28 @@ def create_app() -> FastAPI:
             item["unidade"] = obter(meta.key).unidade()
             resposta.append(item)
         return {"app_version": settings.app_version, "indexers": resposta}
+
+    @app.get("/api/indexers/{key}/cobertura")
+    def cobertura_indexador(key: str, session: Session = Depends(get_session)):
+        return cobertura_efetiva(session, key)
+
+    @app.get("/api/indexers/{key}/overrides")
+    def listar_cadastros_manuais(key: str, session: Session = Depends(get_session)):
+        itens = listar_overrides(session, key)
+        return {"key": key, "overrides": [item.as_dict() for item in itens]}
+
+    @app.post("/api/indexers/{key}/overrides", status_code=201)
+    def criar_cadastro_manual(key: str, payload: OverrideIndexadorSchema, session: Session = Depends(get_session)):
+        with session_scope() as s:
+            item = cadastrar_override(
+                s,
+                key=key,
+                competencia=payload.competencia,
+                valor=payload.valor,
+                fonte=payload.fonte,
+                observacao=payload.observacao,
+            )
+            return item.as_dict()
 
     @app.get("/api/calculos")
     def listar_calculos(session: Session = Depends(get_session)):

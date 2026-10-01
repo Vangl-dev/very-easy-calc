@@ -1,6 +1,6 @@
-# Ponto de interrupção — Etapa 7B (concluída, commitada)
+# Ponto de interrupção — Etapa 7C (concluída, commitada)
 
-Salvo em 01/10/2026. Último commit: *Etapa 7B: exportação PDF/XLSX a partir da memória de cálculo*.
+Salvo em 01/10/2026. Último commit: *Etapa 7C: datas futuras, overrides manuais de índices e atualização de valor-base*.
 
 ## Como retomar
 
@@ -11,41 +11,53 @@ cd /home/vanessa/Projetos/very-easy-calc/backend
 
 ## O que já está pronto (commits)
 
-1. `e1d29be` Etapa 0 — estrutura, README, .gitignore, .env.example.
-2. `45d1668` Etapa 1 — FastAPI, SQLite, registry de indexadores, Tabela Prática TJSP.
-3. `2b1a2f1` Etapa 2 — motor de correção monetária (Decimal, ROUND_HALF_UP, cobertura explícita).
-4. `6df8372` Etapa 3 — Taxa Legal (BCB SGS 29543 oficial) + juros com 3 eras configuráveis.
-5. `d41547c` Etapa 4 — salário mínimo (Ipeadata) + gerador de parcelas de alimentos.
-6. `9e57740` Etapa 5 — bases, encargos, parcela composta, agregação `calcular()`.
-7. `adc6afb` Etapa 6 — API de cálculos (`POST /api/calculos`, `GET /api/calculos/{codigo}`), código `VEC-AAAA-NNNNNN`.
-8. `f7af1db` Etapa 7A — memória de cálculo (`memoria-calculo/1.0`) em `memoria_json`.
-9. Etapa 7B — PDF (ReportLab) e XLSX (openpyxl) a partir exclusivamente da memória.
+1. `e1d29be` Etapa 0 — estrutura.
+2. `45d1668` Etapa 1 — FastAPI, SQLite, indexadores, Tabela Prática TJSP.
+3. `2b1a2f1` Etapa 2 — correção monetária (Decimal).
+4. `6df8372` Etapa 3 — Taxa Legal + juros.
+5. `d41547c` Etapa 4 — salário mínimo + alimentos.
+6. `9e57740` Etapa 5 — parcelas, encargos, agregação.
+7. `adc6afb` Etapa 6 — API `POST/GET /api/calculos`, código VEC.
+8. `f7af1db` Etapa 7A — memória `memoria-calculo/1.0`.
+9. `1d0f475` Etapa 7B — PDF/XLSX a partir da memória.
+10. Etapa 7C — datas futuras + cadastro manual de índices + `tipo=atualizacao`.
 
-Situação conhecida: **163 testes verdes** após a Etapa 7B.
+Situação conhecida: **175 testes verdes** após a Etapa 7C.
 
-## Etapa 7B — o que foi commitado
+## Etapa 7C — o que foi commitado
 
-- `app/export/comum.py` — helpers de leitura da memória (Decimal/BRL/%); sem recálculo.
-- `app/export/pdf.py` — `gerar_pdf(memoria)`: cabeçalho Very Easy Calc, identificação, critérios, bases, resumo, tabela de parcelas com paginação/cabeçalho-rodapé.
-- `app/export/xlsx.py` — `gerar_xlsx(memoria)`: planilhas `Resumo` e `Parcelas`; valores monetários como números.
-- `app/main.py` — `GET /api/calculos/{codigo}/pdf` e `.../xlsx` (404 se ausente).
-- `tests/test_export_relatorios.py` — 10 testes.
+### Cadastro manual de índices (sem UI administrativa)
 
-### Regras da exportação
+- `IndexerOverride` (SQLite): key, competencia, valor, fonte, observacao; unique (key, competencia).
+- `app/indexers/overrides.py`: cadastro, listagem, cobertura efetiva, store em memória para o cálculo.
+- `MonthlyIndexer.valor()`: override → oficial → `CoverageError` (**nunca** usa o último índice).
+- **Regra:** se a competência já existe na série oficial, o cadastro manual é **rejeitado** (não substitui histórico).
 
-- Fonte exclusiva: `memoria_json`.
-- Não recalcula, não consulta indexadores, não aplica regras novas.
-- Alimentos: competência, salário mínimo, percentual/regra, principal, pagamento, saldo, correção, juros, total.
-- XLSX: `Salário mínimo`, `Percentual`, `Principal` etc. como números (não texto).
+### API
+
+- `GET /api/indexers/{key}/cobertura` — oficial + manual + cobertura efetiva.
+- `GET/POST /api/indexers/{key}/overrides` — listagem e cadastro manual.
+
+### Atualização de valor-base (`tipo="atualizacao"`)
+
+- Payload: `valor_base {valor, data_base, descricao}` + `data_base`/`data_final` (data escolhida).
+- Motor de correção já existente; juros/multa/honorários só se pedidos.
+- Sem cobertura → `CoverageError` (422). Com override manual no período → cálculo usa o override e registra em `overrides_utilizados`.
+
+### Memória `memoria-calculo/1.1` (aditiva)
+
+- `atualizacao`: valor original, data_base, data_final, fatores, versão do indexador, valor atualizado.
+- `overrides_utilizados`: entradas manuais efetivamente usadas.
+- Export 7B continua válido (chaves extras ignoradas).
 
 ## Próximas etapas
 
+- **Etapa 7D (opcional):** enriquecer PDF/XLSX com bloco `atualizacao` e overrides.
 - **Etapa 8:** frontend React (Vite + TS + Tailwind).
 
 ## Regras que não mudam
 
-- `Decimal` + `ROUND_HALF_UP`; juros arredondados por trecho; `principal + correcao == valor_corrigido`.
-- Nunca inventar dados, fontes ou doutrina; bases só via scripts oficiais (`backend/scripts/update_*.py`).
-- Testar após cada etapa; só declarar "pronto" depois de pytest verde.
-- Pasta: `/home/vanessa/Projetos/very-easy-calc`; commit por etapa com
+- `Decimal` + `ROUND_HALF_UP`; nunca inventar dados; bases oficiais só via scripts.
+- Cobertura insuficiente → `CoverageError`; nunca auto-estender com o último índice.
+- Testar após cada etapa; commit por etapa com
   `git -c user.name="Vanessa" -c user.email="vanessa@local" commit`.

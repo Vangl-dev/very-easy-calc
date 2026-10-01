@@ -33,6 +33,12 @@ from app.engine.juros import ConfigJuros
 from app.engine.memoria import montar_memoria
 from app.engine.parcela import ParcelaInput
 from app.indexers import obter
+from app.indexers.overrides import (
+    carregar_overrides_da_sessao,
+    definir_overrides_ativos,
+    limpar_overrides_ativos,
+    overrides_utilizados,
+)
 from app.indexers.salario_minimo import KEY as SalarioKey
 from app.models.entities import Calculo
 
@@ -270,24 +276,137 @@ def _configuracao_para_memoria(configuracao: ConfiguracaoCalculo) -> dict:
     }
 
 
-def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
-    settings = get_settings()
-    data_base = date.fromisoformat(payload.data_base)
+def _entradas_atualizacao(
+    payload: CalculoRequest,
+) -> tuple[list[ParcelaInput], ConfiguracaoCalculo, dict]:
+    if payload.valor_base is None:
+        raise ValueError("tipo 'atualizacao' exige o bloco 'valor_base'")
+    if payload.data_final:
+        data_final = date.fromisoformat(payload.data_final)
+    else:
+        data_final = date.fromisoformat(payload.data_base)
+
+    data_base_valor = date.fromisoformat(payload.valor_base.data_base)
+    if data_final < data_base_valor:
+        raise ValueError(
+            f"data final ({data_final.isoformat()}) anterior à data-base do valor "
+            f"({data_base_valor.isoformat()})"
+        )
+
+    if payload.correcao is None:
+        correcao = ConfigCorrecao(
+            aplicar=True,
+            indexador="tjsp_tabela_pratica",
+            termo_inicial=Competencia.parse(data_base_valor),
+            termo_final=Competencia.parse(data_final),
+        )
+    else:
+        correcao = ConfigCorrecao(
+            aplicar=payload.correcao.aplicar,
+            indexador=payload.correcao.indexador,
+            termo_inicial=(
+                Competencia.parse(payload.correcao.termo_inicial)
+                if payload.correcao.termo_inicial
+                else Competencia.parse(data_base_valor)
+            ),
+            termo_final=(
+                Competencia.parse(payload.correcao.termo_final)
+                if payload.correcao.termo_final
+                else Competencia.parse(data_final)
+            ),
+        )
+
+    juros = (
+        _montar_config_juros(payload.juros)
+        if payload.juros is not None
+        else ConfigJuros(aplicar=False)
+    )
+    multa = _montar_config_encargo(payload.multa)
+    honorarios = _montar_config_encargo(payload.honorarios)
 
     configuracao = ConfiguracaoCalculo(
-        data_base=data_base,
-        correcao=_montar_config_correcao(payload.correcao),
-        juros=_montar_config_juros(payload.juros),
-        multa=_montar_config_encargo(payload.multa),
-        honorarios=_montar_config_encargo(payload.honorarios),
+        data_base=data_final,
+        correcao=correcao,
+        juros=juros,
+        multa=multa,
+        honorarios=honorarios,
     )
+    entrada = ParcelaInput(
+        numero=1,
+        vencimento=data_base_valor,
+        principal=payload.valor_base.valor,
+        competencia=Competencia.parse(data_base_valor),
+        descricao=payload.valor_base.descricao or "Atualização de valor-base",
+    )
+    contexto = {
+        "valor_original": entrada.principal,
+        "data_base_valor": data_base_valor.isoformat(),
+        "data_final": data_final.isoformat(),
+        "descricao": payload.valor_base.descricao or "Atualização de valor-base",
+        "correcao": correcao,
+    }
+    return [entrada], configuracao, contexto
 
-    if payload.tipo == "alimentos":
-        entradas, rastros = _entradas_de_alimentos(payload)
+
+def _montar_bloco_atualizacao(corpo: dict, contexto: dict) -> dict:
+    parcela = corpo["parcelas"][0]
+    correcao = parcela.get("correcao") or {}
+    juros = parcela.get("juros") or {}
+    multa = parcela.get("multa") or {}
+    honorarios = parcela.get("honorarios") or {}
+    return {
+        "valor_original": str(contexto["valor_original"]),
+        "data_base": contexto["data_base_valor"],
+        "data_final": contexto["data_final"],
+        "descricao": contexto["descricao"],
+        "indexador": correcao.get("indexador"),
+        "indexador_versao": correcao.get("indexador_versao"),
+        "indexador_fonte": correcao.get("indexador_fonte"),
+        "fator_inicial": correcao.get("fator_inicial"),
+        "fator_final": correcao.get("fator_final"),
+        "razao": correcao.get("razao"),
+        "termo_inicial": correcao.get("termo_inicial"),
+        "termo_final": correcao.get("termo_final"),
+        "valor_corrigido": correcao.get("valor_corrigido"),
+        "correcao": correcao.get("correcao"),
+        "juros": juros.get("juros"),
+        "multa": multa.get("valor"),
+        "honorarios": honorarios.get("valor"),
+        "valor_atualizado": parcela.get("total"),
+        "total": parcela.get("total"),
+        "motivo_correcao": correcao.get("motivo"),
+        "motivo_juros": juros.get("motivo"),
+    }
+
+
+def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
+    settings = get_settings()
+
+    if payload.tipo == "atualizacao":
+        entradas, configuracao, contexto_atualizacao = _entradas_atualizacao(payload)
+        rastros: dict[int, RastroParcela] = {}
     else:
-        entradas, rastros = _entradas_manuais(payload), {}
+        data_base = date.fromisoformat(payload.data_base)
+        configuracao = ConfiguracaoCalculo(
+            data_base=data_base,
+            correcao=_montar_config_correcao(payload.correcao),
+            juros=_montar_config_juros(payload.juros),
+            multa=_montar_config_encargo(payload.multa),
+            honorarios=_montar_config_encargo(payload.honorarios),
+        )
+        contexto_atualizacao = None
+        if payload.tipo == "alimentos":
+            entradas, rastros = _entradas_de_alimentos(payload)
+        else:
+            entradas, rastros = _entradas_manuais(payload), {}
 
-    resultado = calcular(configuracao, entradas)
+    definir_overrides_ativos(carregar_overrides_da_sessao(session))
+    try:
+        resultado = calcular(configuracao, entradas)
+    finally:
+        usados = [item.as_dict() for item in overrides_utilizados()]
+        limpar_overrides_ativos()
+
     corpo = serializar_calculo(
         resultado,
         tipo=payload.tipo,
@@ -299,6 +418,11 @@ def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
     codigo = gerar_codigo_calculo(session)
     data_geracao = datetime.now(timezone.utc)
     payload_dict = payload.model_dump(mode="json")
+    bloco_atualizacao = (
+        _montar_bloco_atualizacao(corpo, contexto_atualizacao)
+        if contexto_atualizacao is not None
+        else None
+    )
     memoria = montar_memoria(
         codigo=codigo,
         tipo=payload.tipo,
@@ -315,6 +439,8 @@ def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
         parcelas=corpo["parcelas"],
         bases=corpo["bases"],
         avisos=corpo["avisos"],
+        atualizacao=bloco_atualizacao,
+        overrides_utilizados=usados,
     )
 
     registro = Calculo(

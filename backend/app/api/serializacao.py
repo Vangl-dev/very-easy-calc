@@ -75,6 +75,9 @@ def _serializar_correcao(resultado: ResultadoCorrecao) -> dict:
         "indexador_fonte": resultado.indexador_fonte,
         "termo_inicial": _comp(resultado.termo_inicial),
         "termo_final": _comp(resultado.termo_final),
+        "fator_inicial": _dec(resultado.fator_inicial),
+        "fator_final": _dec(resultado.fator_final),
+        "razao": _dec(resultado.razao),
         "fator_exibicao": _dec(resultado.fator_exibicao),
     }
 
