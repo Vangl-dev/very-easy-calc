@@ -92,6 +92,8 @@ export interface ConfigJurosPayload {
   taxa?: string | null;
   unidade?: string;
   base?: string;
+  inicio?: string | null;
+  fim?: string | null;
 }
 
 export interface ConfigEncargoPayload {
@@ -109,6 +111,21 @@ export interface ParcelaManualPayload {
   pagamentos?: PagamentoPayload[];
   correcao?: ConfigCorrecaoPayload | null;
   juros?: ConfigJurosPayload | null;
+  multa?: ConfigEncargoPayload | null;
+  honorarios?: ConfigEncargoPayload | null;
+}
+
+export interface VerbaPayload {
+  nome: string;
+  valor: string;
+  data_base: string;
+  descricao?: string;
+  correcao?: ConfigCorrecaoPayload | null;
+  juros?: ConfigJurosPayload | null;
+  multa?: ConfigEncargoPayload | null;
+  honorarios?: ConfigEncargoPayload | null;
+  pagamentos?: PagamentoPayload[];
+  parcelas?: ParcelaManualPayload[];
 }
 
 export interface RegraAlimentoPayload {
@@ -138,11 +155,12 @@ export interface CalculoCivelPayload {
   processo: string;
   parte: string;
   data_base: string;
-  parcelas: ParcelaManualPayload[];
-  correcao: ConfigCorrecaoPayload;
-  juros: ConfigJurosPayload;
-  multa: ConfigEncargoPayload;
-  honorarios: ConfigEncargoPayload;
+  verbas: VerbaPayload[];
+  parcelas?: ParcelaManualPayload[];
+  correcao?: ConfigCorrecaoPayload | null;
+  juros?: ConfigJurosPayload | null;
+  multa?: ConfigEncargoPayload | null;
+  honorarios?: ConfigEncargoPayload | null;
   pagamentos?: PagamentoPayload[];
 }
 
