@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 
 import pytest
 
 from app.core.competencia import Competencia
+from app.core.money import round_brl
 from app.indexers import CoverageError
 from app.indexers.salario_minimo import ARQUIVO_PADRAO, KEY, SalarioMinimo
 from app.indexers.base import carregar_json
@@ -57,10 +59,13 @@ def test_fora_da_cobertura(sm: SalarioMinimo) -> None:
 
 def test_proveniencia_ipeadata() -> None:
     with (ARQUIVO_PADRAO.parent / "salario_minimo_ipea_raw.json").open(encoding="utf-8") as h:
-        bruto = {r["VALDATA"][:7].replace("-", "-"): r for r in __import__("json").load(h)}
+        bruto = {r["VALDATA"][:7]: r for r in json.load(h)}
     fatores = carregar_json(ARQUIVO_PADRAO)["factors"]
     assert len(fatores) == 390
     for fator in fatores:
         chave = f"{fator['year']:04d}-{fator['month']:02d}"
         registro = bruto[chave]
-        assert Decimal(str(registro["VALVALOR"])) == Decimal(str(fator["factor"]))
+        esperado = round_brl(registro["VALVALOR"])
+        obtido = round_brl(fator["factor"])
+        assert obtido == esperado
+        assert obtido == Decimal(str(fator["factor"])).quantize(Decimal("0.01"))

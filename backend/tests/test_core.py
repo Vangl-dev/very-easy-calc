@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from app.core.competencia import Competencia
-from app.core.money import brl, parse_brl, round_brl, to_decimal
+from app.core.money import brl, parse_brl, percentual_txt, round_brl, to_decimal
 
 
 @pytest.mark.parametrize(
@@ -67,6 +67,23 @@ def test_round_brl_half_up(valor: str, esperado: str) -> None:
 )
 def test_formato_brl(valor: object, esperado: str) -> None:
     assert brl(valor) == esperado
+
+
+@pytest.mark.parametrize(
+    ("taxa", "esperado"),
+    [
+        ("0.30", "30%"),
+        ("0.06", "6%"),
+        ("0.12", "12%"),
+        ("0.01", "1%"),
+        ("0.015", "1.5%"),
+        ("1", "100%"),
+        ("0.005", "0.5%"),
+        ("0", "0%"),
+    ],
+)
+def test_percentual_txt(taxa: str, esperado: str) -> None:
+    assert percentual_txt(taxa) == esperado
 
 
 def test_competencia_formats() -> None:

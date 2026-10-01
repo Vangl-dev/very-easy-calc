@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from app.core.competencia import Competencia
 from app.core.money import percentual_txt, round_brl, to_decimal
+from app.engine.bases import BASE_CORRIGIDO, rotulo_base
 from app.indexers import obter
 from app.indexers.taxa_legal import KEY as TaxaLegalKey
 
@@ -68,9 +69,10 @@ class ConfigJuros:
     taxa: Decimal | None = None
     unidade: str = UNIDADE_MENSAL
     regras: tuple[RegraJuros, ...] = REGRAS_PADRAO
-    incidencia: str = "valor corrigido"
+    base: str = BASE_CORRIGIDO
 
     def __post_init__(self) -> None:
+        rotulo_base(self.base)
         if self.modalidade not in MODALIDADES:
             raise ValueError(f"modalidade inválida: {self.modalidade!r}")
         if self.unidade not in UNIDADES:
@@ -197,7 +199,7 @@ def calcular_juros(
 ) -> ResultadoJuros:
     cfg = config or ConfigJuros()
     base = round_brl(to_decimal(principal))
-    incidencia = base_rotulo or cfg.incidencia
+    incidencia = base_rotulo or rotulo_base(cfg.base)
 
     if not cfg.aplicar or cfg.modalidade == MODALIDADE_NAO_APLICAR:
         return ResultadoJuros(

@@ -72,6 +72,24 @@ class Parcela:
     principal: Decimal
     origem: str
     detalhe: str
+    usou_salario_minimo: bool = False
+
+
+def para_entrada(parcela: "Parcela") -> "ParcelaInput":
+    from app.engine.parcela import ParcelaInput
+
+    return ParcelaInput(
+        numero=parcela.numero,
+        vencimento=parcela.vencimento,
+        principal=parcela.principal,
+        competencia=parcela.competencia,
+        descricao=f"{parcela.origem} ({parcela.detalhe})",
+        indexadores=(SalarioKey,) if parcela.usou_salario_minimo else (),
+    )
+
+
+def entradas_de_alimentos(parcelas: list["Parcela"]) -> list["ParcelaInput"]:
+    return [para_entrada(p) for p in parcelas]
 
 
 def _dia_util_do_mes(ano: int, mes: int, dia: int) -> date:
@@ -152,6 +170,7 @@ def gerar_parcelas(
                 principal=principal,
                 origem=bloco.descreve(),
                 detalhe=detalhe,
+                usou_salario_minimo=bloco.tipo == TIPO_SALARIO_MINIMO,
             )
         )
         numero += 1
