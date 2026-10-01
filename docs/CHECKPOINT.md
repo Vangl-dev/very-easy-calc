@@ -1,6 +1,6 @@
-# Ponto de interrupção — Etapa 6 (concluída, commitada)
+# Ponto de interrupção — Etapa 7A (concluída, commitada)
 
-Salvo em 01/10/2026. Último commit: *Etapa 6: API de cálculos POST /api/calculos com VEC-AAAA-NNNNNN*.
+Salvo em 01/10/2026. Último commit: *Etapa 7A: memória de cálculo como fonte única para PDF/XLSX*.
 
 ## Como retomar
 
@@ -17,34 +17,34 @@ cd /home/vanessa/Projetos/very-easy-calc/backend
 4. `6df8372` Etapa 3 — Taxa Legal (BCB SGS 29543 oficial) + juros com 3 eras configuráveis.
 5. `d41547c` Etapa 4 — salário mínimo (Ipeadata) + gerador de parcelas de alimentos.
 6. `9e57740` Etapa 5 — bases, encargos, parcela composta, agregação `calcular()`.
-7. Etapa 6 — API de cálculos (`POST /api/calculos`, `GET /api/calculos/{codigo}`), código `VEC-AAAA-NNNNNN`, persistência SQLite.
+7. `adc6afb` Etapa 6 — API de cálculos (`POST /api/calculos`, `GET /api/calculos/{codigo}`), código `VEC-AAAA-NNNNNN`.
+8. Etapa 7A — memória de cálculo (`memoria-calculo/1.0`) persistida em `memoria_json`.
 
-Situação conhecida: **142 testes verdes** após a Etapa 6.
+Situação conhecida: **153 testes verdes** após a Etapa 7A.
 
-## Etapa 6 — o que foi commitado
+## Etapa 7A — o que foi commitado
 
-Módulos novos:
+- `app/engine/memoria.py` — `ESQUEMA_MEMORIA`, `montar_memoria()`; monta a memória **a partir do resultado já calculado** (sem recalcular).
+- `app/models/entities.py` — coluna `memoria_json` em `Calculo`.
+- `app/db.py` — `ALTER TABLE` seguro para `memoria_json` se a tabela já existir.
+- `app/api/service.py` — grava e devolve `memoria` no POST.
+- `app/main.py` — GET inclui `memoria`; `GET /api/calculos/{codigo}/memoria`.
+- `tests/test_memoria_calculo.py` — 11 testes.
 
-- `app/api/schemas.py` — Pydantic do payload (`CalculoRequest`): tipo `alimentos` | `parcelas`, regras de blocos, pagamentos por competência, configs de correção/juros/multa/honorários.
-- `app/api/serializacao.py` — `ResultadoCalculo` → JSON-safe; `RastroParcela` preserva salário mínimo, percentual e origem por parcela.
-- `app/api/service.py` — `executar_calculo()`: payload → `gerar_parcelas`/`ParcelaInput` → `calcular()` → serializar → gravar `Calculo` com código `VEC-AAAA-NNNNNN`.
-- `tests/test_api_calculos.py` — 15 testes da API.
+### Estrutura da memória (`memoria-calculo/1.0`)
 
-Alterações:
+- `codigo` (VEC), `tipo`, `identificacao` (título/processo/parte/app/data/data_base)
+- `criterios` — correção/juros/multa/honorários, regras de alimentos, pagamentos informados
+- `bases` — key, versão, fonte, papel, cobertura
+- `resumo` — totais já calculados
+- `parcelas` — competência, vencimento, principal, pagamentos, saldo, correção, juros, multa/honorários, total; em alimentos: `regra` (tipo, origem, detalhe, salário mínimo, percentual)
+- `avisos`
 
-- `app/main.py`: `POST /api/calculos` (201), `GET /api/calculos/{codigo}` (404 se ausente), handler `ValueError` → 422.
-
-### Comportamentos da API de alimentos
-
-- 1 parcela por competência; salário mínimo daquela competência (sem retroagir o valor atual).
-- Blocos de regras diferentes suportados (percentual do SM e/ou valor fixo).
-- Pagamentos por `competencia` no payload; saldo por parcela.
-- Correção/juros opcionais; bases versionadas em `bases` (inclui `salario_minimo`).
-- Decimal monetário serializado em centavos (`"330.00"`).
+A memória é a fonte única para o futuro PDF/XLSX (Etapa 7B). Não altera o motor das Etapas 4–5.
 
 ## Próximas etapas
 
-- **Etapa 7:** memória de cálculo ("Por que este valor?") + PDF (ReportLab) e XLSX (openpyxl).
+- **Etapa 7B:** PDF (ReportLab) + XLSX (openpyxl) a partir da memória.
 - **Etapa 8:** frontend React (Vite + TS + Tailwind).
 
 ## Regras que não mudam

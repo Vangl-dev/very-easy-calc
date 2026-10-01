@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+import json
+from datetime import date, datetime, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -29,6 +30,7 @@ from app.engine.configuracao import ConfiguracaoCalculo
 from app.engine.correcao import ConfigCorrecao
 from app.engine.encargos import ConfigEncargo, Pagamento
 from app.engine.juros import ConfigJuros
+from app.engine.memoria import montar_memoria
 from app.engine.parcela import ParcelaInput
 from app.indexers import obter
 from app.indexers.salario_minimo import KEY as SalarioKey
@@ -213,6 +215,61 @@ def _entradas_manuais(
     return entradas
 
 
+def _configuracao_para_memoria(configuracao: ConfiguracaoCalculo) -> dict:
+    return {
+        "data_base": configuracao.data_base.isoformat(),
+        "correcao": {
+            "aplicar": configuracao.correcao.aplicar,
+            "indexador": configuracao.correcao.indexador,
+            "termo_inicial": (
+                configuracao.correcao.termo_inicial.key
+                if configuracao.correcao.termo_inicial
+                else None
+            ),
+            "termo_final": (
+                configuracao.correcao.termo_final.key
+                if configuracao.correcao.termo_final
+                else None
+            ),
+        },
+        "juros": {
+            "aplicar": configuracao.juros.aplicar,
+            "modalidade": configuracao.juros.modalidade,
+            "taxa": str(configuracao.juros.taxa) if configuracao.juros.taxa is not None else None,
+            "unidade": configuracao.juros.unidade,
+            "base": configuracao.juros.base,
+        },
+        "multa": {
+            "aplicar": configuracao.multa.aplicar,
+            "percentual": (
+                str(configuracao.multa.percentual)
+                if configuracao.multa.percentual is not None
+                else None
+            ),
+            "valor_fixo": (
+                str(configuracao.multa.valor_fixo)
+                if configuracao.multa.valor_fixo is not None
+                else None
+            ),
+            "base": configuracao.multa.base,
+        },
+        "honorarios": {
+            "aplicar": configuracao.honorarios.aplicar,
+            "percentual": (
+                str(configuracao.honorarios.percentual)
+                if configuracao.honorarios.percentual is not None
+                else None
+            ),
+            "valor_fixo": (
+                str(configuracao.honorarios.valor_fixo)
+                if configuracao.honorarios.valor_fixo is not None
+                else None
+            ),
+            "base": configuracao.honorarios.base,
+        },
+    }
+
+
 def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
     settings = get_settings()
     data_base = date.fromisoformat(payload.data_base)
@@ -240,6 +297,26 @@ def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
     )
 
     codigo = gerar_codigo_calculo(session)
+    data_geracao = datetime.now(timezone.utc)
+    payload_dict = payload.model_dump(mode="json")
+    memoria = montar_memoria(
+        codigo=codigo,
+        tipo=payload.tipo,
+        titulo=payload.titulo,
+        processo=payload.processo,
+        parte=payload.parte,
+        app_name=settings.app_name,
+        app_version=settings.app_version,
+        data_geracao=data_geracao,
+        data_base=corpo["data_base"],
+        configuracao=_configuracao_para_memoria(configuracao),
+        payload=payload_dict,
+        resumo=corpo["resumo"],
+        parcelas=corpo["parcelas"],
+        bases=corpo["bases"],
+        avisos=corpo["avisos"],
+    )
+
     registro = Calculo(
         codigo=codigo,
         tipo=payload.tipo,
@@ -250,6 +327,8 @@ def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
         payload_json=payload.model_dump_json(),
         resultado_json=serializar_para_persistencia(corpo),
         bases_json=serializar_para_persistencia(corpo["bases"]),
+        memoria_json=serializar_para_persistencia(memoria),
+        created_at=data_geracao,
     )
     session.add(registro)
     session.flush()
@@ -260,10 +339,9 @@ def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
     resposta["processo"] = payload.processo
     resposta["parte"] = payload.parte
     resposta["created_at"] = registro.created_at.isoformat()
+    resposta["memoria"] = memoria
     return resposta
 
 
 def serializar_para_persistencia(valor: object) -> str:
-    import json
-
     return json.dumps(valor, ensure_ascii=False, separators=(",", ":"))

@@ -44,6 +44,17 @@ def get_session_factory() -> sessionmaker[Session]:
 
 def init_db() -> None:
     Base.metadata.create_all(get_engine())
+    _garantir_coluna_memoria()
+
+
+def _garantir_coluna_memoria() -> None:
+    with get_engine().connect() as conn:
+        colunas = [linha[1] for linha in conn.exec_driver_sql("PRAGMA table_info(calculos)")]
+        if "memoria_json" not in colunas:
+            conn.exec_driver_sql(
+                "ALTER TABLE calcos ADD COLUMN memoria_json TEXT NOT NULL DEFAULT '{}'"
+            )
+            conn.commit()
 
 
 def reset() -> None:

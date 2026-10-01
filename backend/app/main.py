@@ -99,6 +99,22 @@ def create_app() -> FastAPI:
 
     @app.get("/api/calculos/{codigo}")
     def obter_calculo(codigo: str, session: Session = Depends(get_session)):
+        registro = _carregar_calculo(codigo, session)
+        corpo = json.loads(registro.resultado_json)
+        corpo["codigo"] = registro.codigo
+        corpo["titulo"] = registro.titulo
+        corpo["processo"] = registro.processo
+        corpo["parte"] = registro.parte
+        corpo["created_at"] = registro.created_at.isoformat()
+        corpo["memoria"] = json.loads(registro.memoria_json or "{}")
+        return corpo
+
+    @app.get("/api/calculos/{codigo}/memoria")
+    def obter_memoria(codigo: str, session: Session = Depends(get_session)):
+        registro = _carregar_calculo(codigo, session)
+        return json.loads(registro.memoria_json or "{}")
+
+    def _carregar_calculo(codigo: str, session: Session) -> Calculo:
         registro = session.scalar(select(Calculo).where(Calculo.codigo == codigo))
         if registro is None:
             raise HTTPException(
@@ -108,13 +124,7 @@ def create_app() -> FastAPI:
                     "mensagem": f"cálculo {codigo} não encontrado",
                 },
             )
-        corpo = json.loads(registro.resultado_json)
-        corpo["codigo"] = registro.codigo
-        corpo["titulo"] = registro.titulo
-        corpo["processo"] = registro.processo
-        corpo["parte"] = registro.parte
-        corpo["created_at"] = registro.created_at.isoformat()
-        return corpo
+        return registro
 
     return app
 
