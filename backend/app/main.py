@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.schemas import CalculoRequest
+from app.api.service import executar_calculo
 from app.core.config import get_settings
 from app.db import get_session, init_db, seed_indexer_versions, session_scope
 from app.indexers import CoverageError, IndexerError, listar_metadata, obter
@@ -53,6 +56,10 @@ def create_app() -> FastAPI:
     async def indexer_handler(_, exc: IndexerError):
         return JSONResponse(status_code=400, content={"erro": "indexador", "mensagem": str(exc)})
 
+    @app.exception_handler(ValueError)
+    async def value_error_handler(_, exc: ValueError):
+        return JSONResponse(status_code=422, content={"erro": "validacao", "mensagem": str(exc)})
+
     @app.get("/api/health")
     def health():
         return {"status": "ok", "app": settings.app_name, "version": settings.app_version}
@@ -84,6 +91,30 @@ def create_app() -> FastAPI:
             }
             for c in linhas
         ]
+
+    @app.post("/api/calculos", status_code=201)
+    def criar_calculo(payload: CalculoRequest):
+        with session_scope() as session:
+            return executar_calculo(payload, session)
+
+    @app.get("/api/calculos/{codigo}")
+    def obter_calculo(codigo: str, session: Session = Depends(get_session)):
+        registro = session.scalar(select(Calculo).where(Calculo.codigo == codigo))
+        if registro is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "erro": "nao_encontrado",
+                    "mensagem": f"cálculo {codigo} não encontrado",
+                },
+            )
+        corpo = json.loads(registro.resultado_json)
+        corpo["codigo"] = registro.codigo
+        corpo["titulo"] = registro.titulo
+        corpo["processo"] = registro.processo
+        corpo["parte"] = registro.parte
+        corpo["created_at"] = registro.created_at.isoformat()
+        return corpo
 
     return app
 

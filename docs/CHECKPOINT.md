@@ -1,6 +1,6 @@
-# Ponto de interrupção — Etapa 5 (concluída, commitada)
+# Ponto de interrupção — Etapa 6 (concluída, commitada)
 
-Salvo em 01/10/2026. Último commit: *Etapa 5: modelo de parcelas (multa, honorários, pagamentos, saldo) e agregação de cálculos*.
+Salvo em 01/10/2026. Último commit: *Etapa 6: API de cálculos POST /api/calculos com VEC-AAAA-NNNNNN*.
 
 ## Como retomar
 
@@ -16,32 +16,34 @@ cd /home/vanessa/Projetos/very-easy-calc/backend
 3. `2b1a2f1` Etapa 2 — motor de correção monetária (Decimal, ROUND_HALF_UP, cobertura explícita).
 4. `6df8372` Etapa 3 — Taxa Legal (BCB SGS 29543 oficial) + juros com 3 eras configuráveis.
 5. `d41547c` Etapa 4 — salário mínimo (Ipeadata) + gerador de parcelas de alimentos.
-6. Etapa 5 — bases de cálculo, encargos (multa/honorários), parcela composta, agregação `calcular()`.
+6. `9e57740` Etapa 5 — bases, encargos, parcela composta, agregação `calcular()`.
+7. Etapa 6 — API de cálculos (`POST /api/calculos`, `GET /api/calculos/{codigo}`), código `VEC-AAAA-NNNNNN`, persistência SQLite.
 
-Situação conhecida: **127 testes verdes** após a Etapa 5.
+Situação conhecida: **142 testes verdes** após a Etapa 6.
 
-## Etapa 5 — o que foi commitado
+## Etapa 6 — o que foi commitado
 
 Módulos novos:
 
-- `app/engine/bases.py` — `BASE_PRINCIPAL`/`BASE_CORRIGIDO`/`BASE_COM_JUROS`, `ROTULOS_BASE`, `ValoresBase`, `construir_bases()`.
-- `app/engine/encargos.py` — `ConfigEncargo`, `ResultadoEncargo`, `calcular_encargo()`, `Pagamento`, `total_pagamentos()`.
-- `app/engine/configuracao.py` — `ConfiguracaoCalculo` (data_base + correção/juros/multa/honorários padrão).
-- `app/engine/parcela.py` — `ParcelaInput` (configs `| None` que caem para a configuração geral), `ResultadoParcela`, `calcular_parcela(p, configuracao=...)`.
-- `app/engine/calculo.py` — `calcular()`, `ResumoCalculo`, `ResultadoCalculo`, `coletar_bases()`, `BaseUtilizada`.
-
-Testes novos: `tests/test_engine_encargos.py`, `tests/test_engine_calculo.py`, `tests/test_engine_parcela.py`.
+- `app/api/schemas.py` — Pydantic do payload (`CalculoRequest`): tipo `alimentos` | `parcelas`, regras de blocos, pagamentos por competência, configs de correção/juros/multa/honorários.
+- `app/api/serializacao.py` — `ResultadoCalculo` → JSON-safe; `RastroParcela` preserva salário mínimo, percentual e origem por parcela.
+- `app/api/service.py` — `executar_calculo()`: payload → `gerar_parcelas`/`ParcelaInput` → `calcular()` → serializar → gravar `Calculo` com código `VEC-AAAA-NNNNNN`.
+- `tests/test_api_calculos.py` — 15 testes da API.
 
 Alterações:
 
-- `app/core/money.py`: `percentual_txt()` (corrige `rstrip("0")` que virava `30%`→`3%`); `juros.py` e `alimentos.py` usam o helper.
-- `app/engine/juros.py`: `ConfigJuros.incidencia` → `ConfigJuros.base` (`BASE_*`), validada no `__post_init__`.
-- `app/engine/alimentos.py`: `Parcela.usou_salario_minimo` + `para_entrada()` / `entradas_de_alimentos()`.
-- `tests/test_indexers_salario_minimo.py`: proveniência Ipeadata comparada com `round_brl` (centavos), sem artefato de float.
+- `app/main.py`: `POST /api/calculos` (201), `GET /api/calculos/{codigo}` (404 se ausente), handler `ValueError` → 422.
+
+### Comportamentos da API de alimentos
+
+- 1 parcela por competência; salário mínimo daquela competência (sem retroagir o valor atual).
+- Blocos de regras diferentes suportados (percentual do SM e/ou valor fixo).
+- Pagamentos por `competencia` no payload; saldo por parcela.
+- Correção/juros opcionais; bases versionadas em `bases` (inclui `salario_minimo`).
+- Decimal monetário serializado em centavos (`"330.00"`).
 
 ## Próximas etapas
 
-- **Etapa 6:** API de cálculos — `POST /api/calculos` com versionamento `VEC-AAAA-NNNNNN`, persistência do JSON do cálculo, `GET /api/calculos/{codigo}`.
 - **Etapa 7:** memória de cálculo ("Por que este valor?") + PDF (ReportLab) e XLSX (openpyxl).
 - **Etapa 8:** frontend React (Vite + TS + Tailwind).
 
