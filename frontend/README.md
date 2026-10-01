@@ -5,13 +5,18 @@ React + Vite + TypeScript + Tailwind CSS.
 ## Desenvolvimento
 
 ```bash
+# Backend (porta 8001 — a 8000 pode estar ocupada por outro serviço)
+cd backend
+.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001
+
+# Frontend
 cd frontend
 npm install
 npm run dev
 ```
 
-- Dev server: `http://localhost:5173`
-- API backend esperada: `http://localhost:8000` (variável `VITE_API_BASE_URL`)
+- Frontend: `http://localhost:5173`
+- API: `http://localhost:8001` (`VITE_API_BASE_URL` em `frontend/.env`)
 
 ## Build
 
@@ -19,9 +24,3 @@ npm run dev
 npm run build
 npm run preview
 ```
-
-## Escopo desta fase (Etapa 8)
-
-Estrutura visual: layout, header, navegação, dashboard, cards, lista recente,
-componentes reutilizáveis e tooltips. O formulário completo de cálculo e toda a
-lógica de índices permanecem no backend.

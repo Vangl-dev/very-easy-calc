@@ -49,12 +49,24 @@ def init_db() -> None:
 
 def _garantir_coluna_memoria() -> None:
     with get_engine().connect() as conn:
-        colunas = [linha[1] for linha in conn.exec_driver_sql("PRAGMA table_info(calculos)")]
-        if "memoria_json" not in colunas:
-            conn.exec_driver_sql(
-                "ALTER TABLE calcos ADD COLUMN memoria_json TEXT NOT NULL DEFAULT '{}'"
-            )
-            conn.commit()
+        tabelas = {
+            linha[0]
+            for linha in conn.exec_driver_sql(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        if "calculos" not in tabelas:
+            return
+        colunas = {
+            linha[1]
+            for linha in conn.exec_driver_sql("PRAGMA table_info(calculos)").fetchall()
+        }
+        if "memoria_json" in colunas:
+            return
+        conn.exec_driver_sql(
+            'ALTER TABLE "calculos" ADD COLUMN memoria_json TEXT NOT NULL DEFAULT "{}"'
+        )
+        conn.commit()
 
 
 def reset() -> None:

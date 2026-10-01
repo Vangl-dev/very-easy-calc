@@ -23,6 +23,7 @@ frontend/dist/
 # Ambiente
 .env
 .env.local
+!frontend/.env
 *.log
 
 # SO / editores
