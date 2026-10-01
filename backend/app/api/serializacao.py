@@ -122,7 +122,7 @@ def _serializar_encargo(resultado: ResultadoEncargo) -> dict:
 
 def _serializar_parcela(
     resultado: ResultadoParcela,
-    rastro: RastroParcela | None,
+    rastro: object | None,
 ) -> dict:
     dados = {
         "numero": resultado.numero,
@@ -145,8 +145,15 @@ def _serializar_parcela(
         "tipo_regra": None,
         "origem": "",
         "detalhe": "",
+        "verba": None,
+        "inicio_correcao": _comp(resultado.correcao.termo_inicial),
+        "inicio_juros": (
+            resultado.juros.trechos[0].inicio.isoformat()
+            if resultado.juros.trechos
+            else None
+        ),
     }
-    if rastro is not None:
+    if isinstance(rastro, RastroParcela):
         dados["salario_minimo"] = _brl(rastro.salario_minimo)
         dados["percentual"] = _percentual(rastro.percentual)
         dados["tipo_regra"] = rastro.tipo_regra
@@ -154,6 +161,20 @@ def _serializar_parcela(
         dados["detalhe"] = rastro.detalhe
         if rastro.detalhe and not dados["descricao"]:
             dados["descricao"] = rastro.detalhe
+    elif isinstance(rastro, dict):
+        if rastro.get("verba_nome"):
+            dados["verba"] = {
+                "id": rastro.get("verba_id"),
+                "nome": rastro.get("verba_nome"),
+                "valor": rastro.get("verba_valor"),
+                "data_base": rastro.get("verba_data_base"),
+            }
+        if rastro.get("inicio_correcao"):
+            dados["inicio_correcao"] = rastro["inicio_correcao"]
+        if rastro.get("inicio_juros"):
+            dados["inicio_juros"] = rastro["inicio_juros"]
+        if rastro.get("detalhe") and not dados["descricao"]:
+            dados["descricao"] = rastro["detalhe"]
     return dados
 
 
@@ -174,8 +195,9 @@ def serializar_calculo(
     *,
     tipo: str,
     app_version: str,
-    rastros: dict[int, RastroParcela] | None = None,
+    rastros: dict[int, object] | None = None,
     payload: dict | None = None,
+    verbas: list[dict] | None = None,
 ) -> dict:
     mapa = rastros or {}
     resumo = resultado.resumo
@@ -200,6 +222,7 @@ def serializar_calculo(
         "parcelas": [
             _serializar_parcela(p, mapa.get(p.numero)) for p in resultado.parcelas
         ],
+        "verbas": [dict(v) for v in (verbas or [])],
         "bases": [_serializar_base(b) for b in resultado.bases],
         "avisos": list(resultado.avisos),
         "payload": payload or {},

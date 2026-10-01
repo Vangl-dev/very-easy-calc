@@ -70,6 +70,8 @@ class ConfigJuros:
     unidade: str = UNIDADE_MENSAL
     regras: tuple[RegraJuros, ...] = REGRAS_PADRAO
     base: str = BASE_CORRIGIDO
+    inicio: date | None = None
+    fim: date | None = None
 
     def __post_init__(self) -> None:
         rotulo_base(self.base)
@@ -84,6 +86,15 @@ class ConfigJuros:
                 raise ValueError("taxa não pode ser negativa")
         if self.modalidade == MODALIDADE_TAXA_LEGAL and not self.regras:
             raise ValueError("modalidade taxa_legal exige ao menos uma regra de período")
+        if self.inicio is not None and isinstance(self.inicio, str):
+            object.__setattr__(self, "inicio", _para_data(self.inicio, "início dos juros"))
+        if self.fim is not None and isinstance(self.fim, str):
+            object.__setattr__(self, "fim", _para_data(self.fim, "fim dos juros"))
+        if self.inicio is not None and self.fim is not None and self.inicio > self.fim:
+            raise ValueError(
+                f"início dos juros ({self.inicio.isoformat()}) posterior ao "
+                f"fim ({self.fim.isoformat()})"
+            )
 
 
 @dataclass(frozen=True)

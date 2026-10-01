@@ -13,6 +13,7 @@ from app.api.schemas import (
     ConfigJurosSchema,
     PagamentoSchema,
     RegraAlimentoSchema,
+    VerbaSchema,
 )
 from app.api.serializacao import RastroParcela, serializar_calculo
 from app.core.competencia import Competencia
@@ -85,7 +86,172 @@ def _montar_config_juros(schema: ConfigJurosSchema | None) -> ConfigJuros:
     }
     if schema.taxa is not None:
         kwargs["taxa"] = to_decimal(schema.taxa)
+    if schema.inicio:
+        kwargs["inicio"] = date.fromisoformat(schema.inicio)
+    if schema.fim:
+        kwargs["fim"] = date.fromisoformat(schema.fim)
     return ConfigJuros(**kwargs)
+
+
+def _montar_config_correcao_de_verba(
+    schema: ConfigCorrecaoSchema | None,
+    *,
+    data_base_verba: str,
+) -> ConfigCorrecao:
+    if schema is None:
+        return ConfigCorrecao(aplicar=False)
+    inicio = schema.termo_inicial or data_base_verba
+    return ConfigCorrecao(
+        aplicar=schema.aplicar,
+        indexador=schema.indexador,
+        termo_inicial=Competencia.parse(inicio) if schema.aplicar else None,
+        termo_final=(
+            Competencia.parse(schema.termo_final)
+            if schema.termo_final and schema.aplicar
+            else None
+        ),
+    )
+
+
+def _montar_config_juros_de_verba(
+    schema: ConfigJurosSchema | None,
+    *,
+    data_base_verba: str,
+) -> ConfigJuros:
+    if schema is None:
+        return ConfigJuros(aplicar=False)
+    kwargs: dict = {
+        "aplicar": schema.aplicar,
+        "modalidade": schema.modalidade,
+        "unidade": schema.unidade,
+        "base": schema.base,
+    }
+    if schema.taxa is not None:
+        kwargs["taxa"] = to_decimal(schema.taxa)
+    if schema.aplicar:
+        kwargs["inicio"] = (
+            date.fromisoformat(schema.inicio)
+            if schema.inicio
+            else date.fromisoformat(data_base_verba)
+        )
+        if schema.fim:
+            kwargs["fim"] = date.fromisoformat(schema.fim)
+    return ConfigJuros(**kwargs)
+
+
+def _entradas_de_verbas(
+    payload: CalculoRequest,
+) -> tuple[list[ParcelaInput], dict[int, dict]]:
+    """Expande verbas em ParcelaInput com configs independentes por rubrica."""
+    if not payload.verbas:
+        raise ValueError("tipo 'parcelas' com verbas exige ao menos uma verba em 'verbas'")
+
+    entradas: list[ParcelaInput] = []
+    rastros: dict[int, dict] = {}
+    numero = 0
+
+    for indice, verba in enumerate(payload.verbas, start=1):
+        vencimento = date.fromisoformat(verba.data_base)
+        correcao = _montar_config_correcao_de_verba(
+            verba.correcao, data_base_verba=verba.data_base
+        )
+        juros = _montar_config_juros_de_verba(
+            verba.juros, data_base_verba=verba.data_base
+        )
+        multa = _montar_config_encargo(verba.multa)
+        honorarios = _montar_config_encargo(verba.honorarios)
+        pagamentos = _montar_pagamentos(verba.pagamentos)
+
+        if verba.parcelas:
+            for parcela_verba in verba.parcelas:
+                numero += 1
+                venc_parc = date.fromisoformat(parcela_verba.vencimento)
+                correcao_p = (
+                    _montar_config_correcao(parcela_verba.correcao)
+                    if parcela_verba.correcao
+                    else correcao
+                )
+                juros_p = (
+                    _montar_config_juros(parcela_verba.juros)
+                    if parcela_verba.juros
+                    else juros
+                )
+                entrada = ParcelaInput(
+                    numero=numero,
+                    vencimento=venc_parc,
+                    principal=parcela_verba.principal,
+                    descricao=parcela_verba.descricao or verba.descricao or verba.nome,
+                    pagamentos=_montar_pagamentos(parcela_verba.pagamentos) or pagamentos,
+                    correcao=correcao_p,
+                    juros=juros_p,
+                    multa=multa,
+                    honorarios=honorarios,
+                )
+                entradas.append(entrada)
+                rastros[numero] = {
+                    "verba_id": f"verba-{indice}",
+                    "verba_nome": verba.nome,
+                    "verba_valor": verba.valor,
+                    "verba_data_base": verba.data_base,
+                    "inicio_correcao": (
+                        correcao_p.termo_inicial.key if correcao_p.termo_inicial else None
+                    ),
+                    "inicio_juros": (
+                        juros_p.inicio.isoformat() if juros_p.inicio else None
+                    ),
+                }
+        else:
+            numero += 1
+            entrada = ParcelaInput(
+                numero=numero,
+                vencimento=vencimento,
+                principal=verba.valor,
+                descricao=verba.descricao or verba.nome,
+                pagamentos=pagamentos,
+                correcao=correcao,
+                juros=juros,
+                multa=multa,
+                honorarios=honorarios,
+            )
+            entradas.append(entrada)
+            rastros[numero] = {
+                "verba_id": f"verba-{indice}",
+                "verba_nome": verba.nome,
+                "verba_valor": verba.valor,
+                "verba_data_base": verba.data_base,
+                "inicio_correcao": (
+                    correcao.termo_inicial.key if correcao.termo_inicial else None
+                ),
+                "inicio_juros": juros.inicio.isoformat() if juros.inicio else None,
+            }
+
+    return entradas, rastros
+
+
+def _entradas_manuais(
+    payload: CalculoRequest,
+) -> list[ParcelaInput]:
+    if payload.verbas:
+        entradas, _ = _entradas_de_verbas(payload)
+        return entradas
+    if not payload.parcelas:
+        raise ValueError("tipo 'parcelas' exige verbas ou ao menos uma parcela")
+    entradas: list[ParcelaInput] = []
+    for item in payload.parcelas:
+        entradas.append(
+            ParcelaInput(
+                numero=item.numero,
+                vencimento=item.vencimento,
+                principal=item.principal,
+                descricao=item.descricao,
+                pagamentos=_montar_pagamentos(item.pagamentos),
+                correcao=_montar_config_correcao(item.correcao) if item.correcao else None,
+                juros=_montar_config_juros(item.juros) if item.juros else None,
+                multa=_montar_config_encargo(item.multa) if item.multa else None,
+                honorarios=_montar_config_encargo(item.honorarios) if item.honorarios else None,
+            )
+        )
+    return entradas
 
 
 def _montar_config_encargo(schema: ConfigEncargoSchema | None) -> ConfigEncargo:
@@ -198,27 +364,6 @@ def _entradas_de_alimentos(
         else:
             reajustadas.append(entrada)
     return reajustadas, rastros
-
-
-def _entradas_manuais(
-    payload: CalculoRequest,
-) -> list[ParcelaInput]:
-    if not payload.parcelas:
-        raise ValueError("tipo 'parcelas' exige ao menos uma parcela em 'parcelas'")
-    entradas: list[ParcelaInput] = []
-    for item in payload.parcelas:
-        entradas.append(
-            ParcelaInput(
-                numero=item.numero,
-                vencimento=item.vencimento,
-                principal=item.principal,
-                descricao=item.descricao,
-                pagamentos=_montar_pagamentos(item.pagamentos),
-                correcao=_montar_config_correcao(item.correcao) if item.correcao else None,
-                juros=_montar_config_juros(item.juros) if item.juros else None,
-            )
-        )
-    return entradas
 
 
 def _configuracao_para_memoria(configuracao: ConfiguracaoCalculo) -> dict:
@@ -379,12 +524,53 @@ def _montar_bloco_atualizacao(corpo: dict, contexto: dict) -> dict:
     }
 
 
+def _montar_verbas_para_memoria(
+    payload: CalculoRequest,
+    rastros: dict[int, dict],
+) -> list[dict]:
+    verbas: list[dict] = []
+    for indice, verba in enumerate(payload.verbas or [], start=1):
+        verba_id = f"verba-{indice}"
+        parcelas_da_verba = [
+            {
+                "numero": numero,
+                "verba_id": item.get("verba_id"),
+                "inicio_correcao": item.get("inicio_correcao"),
+                "inicio_juros": item.get("inicio_juros"),
+            }
+            for numero, item in rastros.items()
+            if item.get("verba_id") == verba_id
+        ]
+        inicio_correcao = next(
+            (p["inicio_correcao"] for p in parcelas_da_verba if p["inicio_correcao"]),
+            None,
+        )
+        inicio_juros = next(
+            (p["inicio_juros"] for p in parcelas_da_verba if p["inicio_juros"]),
+            None,
+        )
+        verbas.append(
+            {
+                "id": verba_id,
+                "nome": verba.nome,
+                "descricao": verba.descricao,
+                "valor": verba.valor,
+                "data_base": verba.data_base,
+                "inicio_correcao": inicio_correcao,
+                "inicio_juros": inicio_juros,
+                "parcelas": parcelas_da_verba,
+            }
+        )
+    return verbas
+
+
 def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
     settings = get_settings()
+    verbas_memoria: list[dict] = []
+    rastros: dict[int, object] = {}
 
     if payload.tipo == "atualizacao":
         entradas, configuracao, contexto_atualizacao = _entradas_atualizacao(payload)
-        rastros: dict[int, RastroParcela] = {}
     else:
         data_base = date.fromisoformat(payload.data_base)
         configuracao = ConfiguracaoCalculo(
@@ -397,8 +583,11 @@ def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
         contexto_atualizacao = None
         if payload.tipo == "alimentos":
             entradas, rastros = _entradas_de_alimentos(payload)
+        elif payload.verbas:
+            entradas, rastros = _entradas_de_verbas(payload)
+            verbas_memoria = _montar_verbas_para_memoria(payload, rastros)
         else:
-            entradas, rastros = _entradas_manuais(payload), {}
+            entradas = _entradas_manuais(payload)
 
     definir_overrides_ativos(carregar_overrides_da_sessao(session))
     try:
@@ -413,6 +602,7 @@ def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
         app_version=settings.app_version,
         rastros=rastros,
         payload=payload.model_dump(mode="json"),
+        verbas=verbas_memoria,
     )
 
     codigo = gerar_codigo_calculo(session)
@@ -441,6 +631,7 @@ def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
         avisos=corpo["avisos"],
         atualizacao=bloco_atualizacao,
         overrides_utilizados=usados,
+        verbas=verbas_memoria,
     )
 
     registro = Calculo(

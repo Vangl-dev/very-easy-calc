@@ -41,6 +41,8 @@ class ConfigJurosSchema(BaseModel):
     taxa: str | None = None
     unidade: str = "mensal"
     base: str = "corrigido"
+    inicio: str | None = None
+    fim: str | None = None
 
 
 class ConfigEncargoSchema(BaseModel):
@@ -64,6 +66,30 @@ class ParcelaManualSchema(BaseModel):
     pagamentos: list[PagamentoSchema] = []
     correcao: ConfigCorrecaoSchema | None = None
     juros: ConfigJurosSchema | None = None
+    multa: ConfigEncargoSchema | None = None
+    honorarios: ConfigEncargoSchema | None = None
+
+
+class VerbaSchema(BaseModel):
+    """Rubrica do cálculo Cível com datas e encargos independentes."""
+
+    nome: str
+    valor: str
+    data_base: str
+    descricao: str = ""
+    correcao: ConfigCorrecaoSchema | None = None
+    juros: ConfigJurosSchema | None = None
+    multa: ConfigEncargoSchema | None = None
+    honorarios: ConfigEncargoSchema | None = None
+    pagamentos: list[PagamentoSchema] = []
+    parcelas: list[ParcelaManualSchema] = []
+
+    @field_validator("nome")
+    @classmethod
+    def _nome_obrigatorio(cls, v: str) -> str:
+        if not str(v).strip():
+            raise ValueError("nome da verba é obrigatório")
+        return v.strip()
 
 
 class ValorBaseSchema(BaseModel):
@@ -96,6 +122,7 @@ class CalculoRequest(BaseModel):
     valor_base: ValorBaseSchema | None = None
     alimentos: AlimentosSchema | None = None
     parcelas: list[ParcelaManualSchema] | None = None
+    verbas: list[VerbaSchema] | None = None
     correcao: ConfigCorrecaoSchema | None = None
     juros: ConfigJurosSchema | None = None
     multa: ConfigEncargoSchema | None = None

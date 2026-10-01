@@ -86,10 +86,12 @@ def calcular_parcela(
     )
 
     bases_sem_juros = construir_bases(parcela.principal, correcao.correcao, Decimal("0.00"))
+    inicio_juros = cfg_juros.inicio or parcela.vencimento
+    fim_juros = cfg_juros.fim or configuracao.data_base
     juros = calcular_juros(
         bases_sem_juros.valor(cfg_juros.base),
-        parcela.vencimento,
-        configuracao.data_base,
+        inicio_juros,
+        fim_juros,
         cfg_juros,
         base_rotulo=None,
     )

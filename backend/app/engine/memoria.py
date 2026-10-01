@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-ESQUEMA_MEMORIA = "memoria-calculo/1.1"
+ESQUEMA_MEMORIA = "memoria-calculo/1.2"
 
 __all__ = ["ESQUEMA_MEMORIA", "montar_memoria"]
 
@@ -90,6 +90,7 @@ def montar_memoria(
     avisos: list[str],
     atualizacao: dict | None = None,
     overrides_utilizados: list[dict] | None = None,
+    verbas: list[dict] | None = None,
 ) -> dict:
     """Monta a memória de cálculo a partir de valores já calculados.
 
@@ -117,6 +118,7 @@ def montar_memoria(
         "bases": [dict(b) for b in bases],
         "resumo": dict(resumo),
         "parcelas": [_parcela_de_memoria(p) for p in parcelas],
+        "verbas": [dict(v) for v in (verbas or [])],
         "avisos": list(avisos),
         "atualizacao": dict(atualizacao) if atualizacao else None,
         "overrides_utilizados": [dict(o) for o in (overrides_utilizados or [])],
