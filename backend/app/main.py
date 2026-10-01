@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,8 @@ from app.api.schemas import CalculoRequest
 from app.api.service import executar_calculo
 from app.core.config import get_settings
 from app.db import get_session, init_db, seed_indexer_versions, session_scope
+from app.export.pdf import gerar_pdf
+from app.export.xlsx import gerar_xlsx
 from app.indexers import CoverageError, IndexerError, listar_metadata, obter
 from app.models.entities import Calculo, IndexerVersion
 
@@ -113,6 +115,34 @@ def create_app() -> FastAPI:
     def obter_memoria(codigo: str, session: Session = Depends(get_session)):
         registro = _carregar_calculo(codigo, session)
         return json.loads(registro.memoria_json or "{}")
+
+    @app.get("/api/calculos/{codigo}/pdf")
+    def exportar_pdf(codigo: str, session: Session = Depends(get_session)):
+        registro = _carregar_calculo(codigo, session)
+        memoria = json.loads(registro.memoria_json or "{}")
+        conteudo = gerar_pdf(memoria)
+        return Response(
+            content=conteudo,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{codigo}.pdf"',
+            },
+        )
+
+    @app.get("/api/calculos/{codigo}/xlsx")
+    def exportar_xlsx(codigo: str, session: Session = Depends(get_session)):
+        registro = _carregar_calculo(codigo, session)
+        memoria = json.loads(registro.memoria_json or "{}")
+        conteudo = gerar_xlsx(memoria)
+        return Response(
+            content=conteudo,
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+            headers={
+                "Content-Disposition": f'attachment; filename="{codigo}.xlsx"',
+            },
+        )
 
     def _carregar_calculo(codigo: str, session: Session) -> Calculo:
         registro = session.scalar(select(Calculo).where(Calculo.codigo == codigo))

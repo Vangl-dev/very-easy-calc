@@ -1,6 +1,6 @@
-# Ponto de interrupção — Etapa 7A (concluída, commitada)
+# Ponto de interrupção — Etapa 7B (concluída, commitada)
 
-Salvo em 01/10/2026. Último commit: *Etapa 7A: memória de cálculo como fonte única para PDF/XLSX*.
+Salvo em 01/10/2026. Último commit: *Etapa 7B: exportação PDF/XLSX a partir da memória de cálculo*.
 
 ## Como retomar
 
@@ -18,33 +18,28 @@ cd /home/vanessa/Projetos/very-easy-calc/backend
 5. `d41547c` Etapa 4 — salário mínimo (Ipeadata) + gerador de parcelas de alimentos.
 6. `9e57740` Etapa 5 — bases, encargos, parcela composta, agregação `calcular()`.
 7. `adc6afb` Etapa 6 — API de cálculos (`POST /api/calculos`, `GET /api/calculos/{codigo}`), código `VEC-AAAA-NNNNNN`.
-8. Etapa 7A — memória de cálculo (`memoria-calculo/1.0`) persistida em `memoria_json`.
+8. `f7af1db` Etapa 7A — memória de cálculo (`memoria-calculo/1.0`) em `memoria_json`.
+9. Etapa 7B — PDF (ReportLab) e XLSX (openpyxl) a partir exclusivamente da memória.
 
-Situação conhecida: **153 testes verdes** após a Etapa 7A.
+Situação conhecida: **163 testes verdes** após a Etapa 7B.
 
-## Etapa 7A — o que foi commitado
+## Etapa 7B — o que foi commitado
 
-- `app/engine/memoria.py` — `ESQUEMA_MEMORIA`, `montar_memoria()`; monta a memória **a partir do resultado já calculado** (sem recalcular).
-- `app/models/entities.py` — coluna `memoria_json` em `Calculo`.
-- `app/db.py` — `ALTER TABLE` seguro para `memoria_json` se a tabela já existir.
-- `app/api/service.py` — grava e devolve `memoria` no POST.
-- `app/main.py` — GET inclui `memoria`; `GET /api/calculos/{codigo}/memoria`.
-- `tests/test_memoria_calculo.py` — 11 testes.
+- `app/export/comum.py` — helpers de leitura da memória (Decimal/BRL/%); sem recálculo.
+- `app/export/pdf.py` — `gerar_pdf(memoria)`: cabeçalho Very Easy Calc, identificação, critérios, bases, resumo, tabela de parcelas com paginação/cabeçalho-rodapé.
+- `app/export/xlsx.py` — `gerar_xlsx(memoria)`: planilhas `Resumo` e `Parcelas`; valores monetários como números.
+- `app/main.py` — `GET /api/calculos/{codigo}/pdf` e `.../xlsx` (404 se ausente).
+- `tests/test_export_relatorios.py` — 10 testes.
 
-### Estrutura da memória (`memoria-calculo/1.0`)
+### Regras da exportação
 
-- `codigo` (VEC), `tipo`, `identificacao` (título/processo/parte/app/data/data_base)
-- `criterios` — correção/juros/multa/honorários, regras de alimentos, pagamentos informados
-- `bases` — key, versão, fonte, papel, cobertura
-- `resumo` — totais já calculados
-- `parcelas` — competência, vencimento, principal, pagamentos, saldo, correção, juros, multa/honorários, total; em alimentos: `regra` (tipo, origem, detalhe, salário mínimo, percentual)
-- `avisos`
-
-A memória é a fonte única para o futuro PDF/XLSX (Etapa 7B). Não altera o motor das Etapas 4–5.
+- Fonte exclusiva: `memoria_json`.
+- Não recalcula, não consulta indexadores, não aplica regras novas.
+- Alimentos: competência, salário mínimo, percentual/regra, principal, pagamento, saldo, correção, juros, total.
+- XLSX: `Salário mínimo`, `Percentual`, `Principal` etc. como números (não texto).
 
 ## Próximas etapas
 
-- **Etapa 7B:** PDF (ReportLab) + XLSX (openpyxl) a partir da memória.
 - **Etapa 8:** frontend React (Vite + TS + Tailwind).
 
 ## Regras que não mudam
