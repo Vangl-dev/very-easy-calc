@@ -5,7 +5,7 @@ from typing import Iterable
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import (
@@ -84,29 +84,30 @@ def _p(texto: object, estilo: ParagraphStyle) -> Paragraph:
 
 def _cabecalho_rodape(codigo: str, app_version: str, esquema: str):
     def on_page(canvas, doc):
+        largura, altura = canvas._pagesize
         canvas.saveState()
         canvas.setFont("Helvetica", 8)
         canvas.setFillColor(colors.HexColor("#222222"))
         canvas.drawString(
             MARGEM,
-            A4[1] - MARGEM + 2 * mm,
+            altura - MARGEM + 2 * mm,
             f"{CABECALHO_APP} — memória de cálculo",
         )
         canvas.drawRightString(
-            A4[0] - MARGEM,
-            A4[1] - MARGEM + 2 * mm,
+            largura - MARGEM,
+            altura - MARGEM + 2 * mm,
             f"{codigo} | app {app_version} | {esquema}",
         )
         canvas.setStrokeColor(colors.HexColor("#999999"))
-        canvas.line(MARGEM, A4[1] - MARGEM, A4[0] - MARGEM, A4[1] - MARGEM)
-        canvas.line(MARGEM, MARGEM, A4[0] - MARGEM, MARGEM)
+        canvas.line(MARGEM, altura - MARGEM, largura - MARGEM, altura - MARGEM)
+        canvas.line(MARGEM, MARGEM, largura - MARGEM, MARGEM)
         canvas.drawString(
             MARGEM,
             MARGEM - 2 * mm,
             f"Documento gerado a partir da memória de cálculo ({esquema}). "
             "Sem recálculo de valores.",
         )
-        canvas.drawRightString(A4[0] - MARGEM, MARGEM - 2 * mm, f"Página {doc.page}")
+        canvas.drawRightString(largura - MARGEM, MARGEM - 2 * mm, f"Página {doc.page}")
         canvas.restoreState()
 
     return on_page
@@ -135,23 +136,28 @@ def _tabela_pares(chaves_valores: Iterable[tuple[str, str]], estilo) -> Table:
 
 def _colunas_parcelas(memoria: dict) -> list[tuple[str, int]]:
     tipo = memoria.get("tipo")
+    alimentos = tipo == "alimentos"
     colunas: list[tuple[str, int]] = [
-        ("Nº", 10),
-        ("Competência", 18),
-        ("Vencimento", 18),
-        ("Regra / detalhe", 36),
-        ("Principal", 20),
-        ("Pagto.", 18),
-        ("Saldo", 18),
-        ("Correção", 16),
-        ("Juros", 16),
-        ("Multa", 14),
-        ("Hon.", 14),
-        ("Total", 20),
+        ("Nº", 8),
+        ("Competência", 16),
+        ("Vencimento", 16),
+        ("Regra / detalhe" if alimentos else "Verba / detalhe", 34),
+        ("Principal", 18),
+        ("Pagto.", 14),
+        ("Diferença", 14),
+        ("Saldo", 14),
+        ("Início corr.", 14),
+        ("Correção", 14),
+        ("Índice", 14),
+        ("Início juros", 14),
+        ("Juros", 14),
+        ("Multa", 12),
+        ("Hon.", 12),
+        ("Total", 18),
     ]
-    if tipo == "alimentos":
-        colunas.insert(4, ("Salário mín.", 18))
-        colunas.insert(5, ("% / regra", 22))
+    if alimentos:
+        colunas.insert(4, ("Salário mín.", 16))
+        colunas.insert(5, ("% / regra", 20))
     return colunas
 
 
@@ -161,29 +167,38 @@ def _linha_parcela(parcela: dict, tem_alimentos: bool, estilo) -> list:
     multa = parcela.get("multa") or {}
     honorarios = parcela.get("honorarios") or {}
     pagamento = parcela.get("total_pago") or "0.00"
-    regra = regra_parcela_txt(parcela) or (parcela.get("descricao") or "")
+    verba = parcela.get("verba") or {}
+    regra = (
+        regra_parcela_txt(parcela)
+        or verba.get("nome")
+        or parcela.get("descricao")
+        or ""
+    )
+    indice = correcao.get("fator_exibicao") or correcao.get("razao")
 
     linha_centro = [
         _p(parcela.get("numero"), estilo["celula_centro"]),
         _p(parcela.get("competencia_rotulo") or parcela.get("competencia"), estilo["celula_centro"]),
         _p(parcela.get("vencimento"), estilo["celula_centro"]),
     ]
+    linha_centro.append(_p(regra, estilo["celula"]))
     if tem_alimentos:
-        linha_centro.append(_p(regra, estilo["celula"]))
         linha_centro.append(_p(brl_memoria(parcela.get("salario_minimo")), estilo["celula_centro"]))
         pct = parcela.get("percentual")
         detalhe = parcela.get("detalhe") or ""
         rotulo = pct_memoria(pct) if pct is not None else (detalhe or "—")
         linha_centro.append(_p(rotulo, estilo["celula_centro"]))
-    else:
-        linha_centro.append(_p(regra, estilo["celula"]))
 
     linha_centro.extend(
         [
             _p(brl_memoria(parcela.get("principal")), estilo["celula_centro"]),
             _p(brl_memoria(pagamento), estilo["celula_centro"]),
+            _p(brl_memoria(parcela.get("diferenca")) or "—", estilo["celula_centro"]),
             _p(brl_memoria(parcela.get("saldo")), estilo["celula_centro"]),
+            _p(parcela.get("inicio_correcao") or "—", estilo["celula_centro"]),
             _p(brl_memoria(correcao.get("correcao")), estilo["celula_centro"]),
+            _p(str(indice) if indice is not None else "—", estilo["celula_centro"]),
+            _p(parcela.get("inicio_juros") or "—", estilo["celula_centro"]),
             _p(brl_memoria(juros.get("juros")), estilo["celula_centro"]),
             _p(brl_memoria(multa.get("valor")), estilo["celula_centro"]),
             _p(brl_memoria(honorarios.get("valor")), estilo["celula_centro"]),
@@ -206,9 +221,10 @@ def gerar_pdf(memoria: dict) -> bytes:
     esquema = memoria.get("esquema") or "memoria-calculo"
 
     buffer = io.BytesIO()
+    paginas = landscape(A4)
     doc = SimpleDocTemplate(
         buffer,
-        pagesize=A4,
+        pagesize=paginas,
         leftMargin=MARGEM,
         rightMargin=MARGEM,
         topMargin=MARGEM + 6 * mm,
@@ -246,6 +262,30 @@ def gerar_pdf(memoria: dict) -> bytes:
 
     historia.append(_p("Critérios / configurações", estilos["secao"]))
     historia.append(_tabela_pares(criterios_txt(criterios), estilos["celula"]))
+
+    verbas = criterios.get("verbas") or []
+    if verbas:
+        historia.append(_p("Verbas do cálculo", estilos["secao"]))
+        linhas_verbas = []
+        for v in verbas:
+            correcao_txt = (
+                f"correção desde {v.get('inicio_correcao')}"
+                if v.get("inicio_correcao")
+                else "correção não aplicada"
+            )
+            juros_txt = (
+                f"juros desde {v.get('inicio_juros')}"
+                if v.get("inicio_juros")
+                else "juros não aplicados"
+            )
+            linhas_verbas.append(
+                (
+                    str(v.get("nome") or "—"),
+                    f"{brl_memoria(v.get('valor'))} · base {v.get('data_base') or '—'} · "
+                    f"{correcao_txt} · {juros_txt}",
+                )
+            )
+        historia.append(_tabela_pares(linhas_verbas, estilos["celula"]))
 
     historia.append(_p("Bases e versionamento", estilos["secao"]))
     if bases:
@@ -293,7 +333,7 @@ def gerar_pdf(memoria: dict) -> bytes:
 
     larguras = [larg * mm for _, larg in colunas]
     total_largura = sum(larguras)
-    max_largura = A4[0] - 2 * MARGEM
+    max_largura = paginas[0] - 2 * MARGEM
     if total_largura > max_largura:
         fator = max_largura / total_largura
         larguras = [w * fator for w in larguras]

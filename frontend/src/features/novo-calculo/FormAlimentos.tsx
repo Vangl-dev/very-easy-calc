@@ -5,6 +5,11 @@ import { Input } from "../../components/ui/Form";
 import { Tooltip } from "../../components/ui/Tooltip";
 import { SecaoBlocosAlimentos, novaRegraAlimento } from "./SecaoBlocosAlimentos";
 import {
+  SecaoAtualizacaoAlimentos,
+  estadoAtualizacaoInicial,
+  type EstadoAtualizacaoAlimentos,
+} from "./SecaoAtualizacaoAlimentos";
+import {
   SecaoPagamentosAlimentos,
   type EstadoPagamentoAlimento,
 } from "./SecaoPagamentosAlimentos";
@@ -36,6 +41,7 @@ interface EstadoAlimentos {
   dataBase: string;
   regras: ReturnType<typeof novaRegraAlimento>[];
   pagamentos: EstadoPagamentoAlimento[];
+  atualizacao: EstadoAtualizacaoAlimentos;
 }
 
 function estadoInicial(): EstadoAlimentos {
@@ -53,6 +59,7 @@ function estadoInicial(): EstadoAlimentos {
       }),
     ],
     pagamentos: [],
+    atualizacao: estadoAtualizacaoInicial(),
   };
 }
 
@@ -97,6 +104,13 @@ function errosValidacao(estado: EstadoAlimentos): string[] {
     if (!pg.data) erros.push(`Pagamento ${indice + 1}: informe a data.`);
     if (!pg.valor.trim()) erros.push(`Pagamento ${indice + 1}: informe o valor.`);
   });
+  if (
+    estado.atualizacao.jurosAplicar &&
+    estado.atualizacao.jurosModalidade === "fixa" &&
+    !estado.atualizacao.jurosTaxa.trim()
+  ) {
+    erros.push("Informe a taxa mensal dos juros (ex.: 0.01 = 1% ao mês).");
+  }
   return erros;
 }
 
@@ -137,8 +151,24 @@ function montarPayload(estado: EstadoAlimentos): CalculoAlimentosPayload {
       ate: estado.ate.trim(),
       dia_vencimento: Number(estado.diaVencimento) || 10,
     },
-    correcao: { aplicar: false },
-    juros: { aplicar: false },
+    correcao: {
+      aplicar: estado.atualizacao.correcaoAplicar,
+      indexador: estado.atualizacao.correcaoIndexador,
+      termo_inicial: null,
+      termo_final: null,
+    },
+    juros: {
+      aplicar: estado.atualizacao.jurosAplicar,
+      modalidade: estado.atualizacao.jurosModalidade,
+      taxa:
+        estado.atualizacao.jurosModalidade === "fixa"
+          ? estado.atualizacao.jurosTaxa.trim() || null
+          : null,
+      unidade: "mensal",
+      base: estado.atualizacao.jurosBase,
+      inicio: null,
+      fim: null,
+    },
     multa: { aplicar: false },
     honorarios: { aplicar: false },
     pagamentos,
@@ -266,6 +296,14 @@ export function FormAlimentos() {
                   }
                 />
               </section>
+              <SecaoAtualizacaoAlimentos
+                valor={estado.atualizacao}
+                onChange={(parcial) =>
+                  atualizar({
+                    atualizacao: { ...estado.atualizacao, ...parcial },
+                  })
+                }
+              />
               <SecaoPagamentosAlimentos
                 pagamentos={estado.pagamentos}
                 onChange={(pagamentos) => atualizar({ pagamentos })}
@@ -326,6 +364,24 @@ export function FormAlimentos() {
             <CampoResumo
               rotulo="Dia de vencimento"
               valor={estado.diaVencimento || "10"}
+            />
+            <CampoResumo
+              rotulo="Correção monetária"
+              valor={
+                estado.atualizacao.correcaoAplicar
+                  ? "Tabela Prática TJSP"
+                  : "Não aplicada"
+              }
+            />
+            <CampoResumo
+              rotulo="Juros"
+              valor={
+                estado.atualizacao.jurosAplicar
+                  ? estado.atualizacao.jurosModalidade === "fixa"
+                    ? `${estado.atualizacao.jurosTaxa || "—"} ao mês desde o vencimento`
+                    : "Taxa Legal (BCB)"
+                  : "Não aplicados"
+              }
             />
           </dl>
           <div className="mt-4">

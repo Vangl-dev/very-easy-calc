@@ -109,7 +109,7 @@ def test_bases_utilizadas_da_correcao() -> None:
     base = r.bases[0]
     assert base.key == "tjsp_tabela_pratica"
     assert base.papel == "Correção monetária"
-    assert base.versao == "2026.08"
+    assert base.versao == "2026.09"
     assert base.fonte == "AASP"
     assert base.cobertura.startswith("01/1992")
 

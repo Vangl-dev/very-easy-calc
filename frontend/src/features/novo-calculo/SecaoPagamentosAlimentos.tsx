@@ -48,7 +48,7 @@ export function SecaoPagamentosAlimentos({ pagamentos, onChange }: Props) {
             id="sec-pag-alimentos"
             className="text-base font-semibold text-ink-900"
           >
-            3. Pagamentos por competência
+            5. Pagamentos por competência
           </h2>
           <Tooltip text="Informe a competência de cada pagamento (ex.: 01/2021). O backend abate o valor na parcela daquela competência. Cada competência mantém seu próprio principal." />
         </div>

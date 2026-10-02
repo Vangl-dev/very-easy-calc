@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-ESQUEMA_MEMORIA = "memoria-calculo/1.2"
+ESQUEMA_MEMORIA = "memoria-calculo/1.3"
 
 __all__ = ["ESQUEMA_MEMORIA", "montar_memoria"]
 
@@ -23,6 +23,7 @@ def _criterios_de(
     data_base: str,
     configuracao: dict,
     payload: dict,
+    verbas: list[dict] | None = None,
 ) -> dict:
     correcao = configuracao.get("correcao") or {}
     juros = configuracao.get("juros") or {}
@@ -51,6 +52,16 @@ def _criterios_de(
             "ate": alimentos.get("ate"),
             "dia_vencimento": alimentos.get("dia_vencimento"),
         },
+        "verbas": [
+            {
+                "nome": v.get("nome"),
+                "valor": v.get("valor"),
+                "data_base": v.get("data_base"),
+                "inicio_correcao": v.get("inicio_correcao"),
+                "inicio_juros": v.get("inicio_juros"),
+            }
+            for v in (verbas or [])
+        ],
         "pagamentos_informados": list(payload.get("pagamentos") or []),
     }
 
@@ -114,6 +125,7 @@ def montar_memoria(
             data_base=data_base,
             configuracao=configuracao,
             payload=payload,
+            verbas=verbas,
         ),
         "bases": [dict(b) for b in bases],
         "resumo": dict(resumo),

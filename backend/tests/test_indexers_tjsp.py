@@ -23,12 +23,12 @@ def test_metadata_oficial(tjsp: TabelaPraticaTJSP) -> None:
     assert meta.name == "Tabela Prática TJSP"
     assert meta.kind == "correcao"
     assert meta.source == "AASP"
-    assert meta.version == "2026.08"
-    assert meta.updated_at == "2026-09-01"
+    assert meta.version == "2026.09"
+    assert meta.updated_at == "2026-10-02"
     assert meta.cobertura.inicio == Competencia(1992, 1)
-    assert meta.cobertura.fim == Competencia(2026, 8)
-    assert meta.total_records == 416
-    assert meta.cobertura.total == 416
+    assert meta.cobertura.fim == Competencia(2026, 9)
+    assert meta.total_records == 417
+    assert meta.cobertura.total == 417
     assert "aasp.org.br" in meta.source_url
 
 
@@ -37,12 +37,13 @@ def test_fatores_conhecidos(tjsp: TabelaPraticaTJSP) -> None:
     assert tjsp.valor("1995-01") == Decimal("1.133251")
     assert tjsp.valor("2026-06") == Decimal("8.560658")
     assert tjsp.valor("2026-08") == Decimal("8.600913")
-    assert tjsp.valor(Competencia(2026, 8)) == Decimal("8.600913")
+    assert tjsp.valor("2026-09") == Decimal("8.566509")
+    assert tjsp.valor(Competencia(2026, 9)) == Decimal("8.566509")
 
 
 def test_exemplo_oficial_aasp(tjsp: TabelaPraticaTJSP) -> None:
-    corrigido = tjsp.atualizar("1000", Competencia(1995, 1), Competencia(2026, 6))
-    assert corrigido.quantize(Decimal("0.01")) == Decimal("7554.07")
+    corrigido = tjsp.atualizar("1000", Competencia(1995, 1), Competencia(2026, 9))
+    assert corrigido.quantize(Decimal("0.01")) == Decimal("7559.23")
 
 
 def test_nao_usa_silenciosamente_indice_fora_da_cobertura(tjsp: TabelaPraticaTJSP) -> None:
@@ -50,9 +51,9 @@ def test_nao_usa_silenciosamente_indice_fora_da_cobertura(tjsp: TabelaPraticaTJS
         tjsp.valor(Competencia(1991, 12))
     assert "12/1991" in str(antes.value)
     with pytest.raises(CoverageError) as depois:
-        tjsp.valor(Competencia(2026, 9))
+        tjsp.valor(Competencia(2026, 10))
+    assert "10/2026" in str(depois.value)
     assert "09/2026" in str(depois.value)
-    assert "08/2026" in str(depois.value)
     assert "01/1992" in str(depois.value)
 
 
@@ -64,7 +65,7 @@ def test_razao_e_simetrica(tjsp: TabelaPraticaTJSP) -> None:
 
 def test_registry(tjsp: TabelaPraticaTJSP) -> None:
     assert KEY in __import__("app.indexers", fromlist=["chaves"]).chaves()
-    assert obter(KEY).metadata.version == "2026.08"
+    assert obter(KEY).metadata.version == "2026.09"
     with pytest.raises(IndexerError):
         obter("nao_existe")
 

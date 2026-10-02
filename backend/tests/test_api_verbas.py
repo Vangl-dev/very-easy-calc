@@ -121,7 +121,7 @@ def test_duas_verbas_com_datas_diferentes_permanecem_independentes(client: TestC
 
     # memória preserva verbas
     memoria = body["memoria"]
-    assert memoria["esquema"] == "memoria-calculo/1.2"
+    assert memoria["esquema"] == "memoria-calculo/1.3"
     assert len(memoria["verbas"]) == 2
     assert memoria["verbas"][0]["nome"] == "Dano moral"
     assert memoria["verbas"][0]["data_base"] == "2020-05-10"
@@ -177,6 +177,7 @@ def test_verba_com_pagamento_abate_saldo(client: TestClient) -> None:
     parcela = response.json()["parcelas"][0]
     assert parcela["total"] == "1000.00"
     assert parcela["total_pago"] == "250.00"
+    assert parcela["diferenca"] == "750.00"
     assert parcela["saldo"] == "750.00"
     assert parcela["verba"]["nome"] == "Dano material"
 

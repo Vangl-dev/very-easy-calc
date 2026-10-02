@@ -138,6 +138,7 @@ def _serializar_parcela(
         "pagamentos": [serializar_pagamento(p) for p in resultado.pagamentos],
         "total": str(round_brl(resultado.total)),
         "total_pago": str(round_brl(resultado.total_pago)),
+        "diferenca": str(round_brl(resultado.principal - resultado.total_pago)),
         "saldo": str(round_brl(resultado.saldo)),
         "adicional": str(round_brl(resultado.adicional)),
         "salario_minimo": None,

@@ -32,9 +32,9 @@ def test_indexers_listados_e_versionados(client: TestClient) -> None:
     assert body["app_version"] == "1.0.0"
     assert len(body["indexers"]) == 3
     item = next(i for i in body["indexers"] if i["key"] == "tjsp_tabela_pratica")
-    assert item["version"] == "2026.08"
+    assert item["version"] == "2026.09"
     assert item["registrada"] is True
-    assert item["cobertura"] == {"inicio": "01/1992", "fim": "08/2026", "total": 416}
+    assert item["cobertura"] == {"inicio": "01/1992", "fim": "09/2026", "total": 417}
     assert item["kind"] == "correcao"
     assert item["unidade"] == "fator acumulado"
 

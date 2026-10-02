@@ -73,6 +73,7 @@ def test_memoria_presente_no_post_e_preserva_valores(client: TestClient) -> None
     assert memoria["parcelas"][0]["principal"] == body["parcelas"][0]["principal"] == "330.00"
     assert memoria["parcelas"][0]["saldo"] == "230.00"
     assert memoria["parcelas"][0]["total_pago"] == "100.00"
+    assert memoria["parcelas"][0]["diferenca"] == "230.00"
     assert memoria["parcelas"][0]["pagamentos"][0]["valor"] == "100.00"
 
 

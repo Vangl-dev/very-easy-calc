@@ -24,10 +24,10 @@ def test_seed_registra_bases_indexadoras(session) -> None:
     )
     assert registro is not None
     assert registro.key == "tjsp_tabela_pratica"
-    assert registro.version == "2026.08"
+    assert registro.version == "2026.09"
     assert registro.coverage_start == "1992-01"
-    assert registro.coverage_end == "2026-08"
-    assert registro.total_records == 416
+    assert registro.coverage_end == "2026-09"
+    assert registro.total_records == 417
     assert registro.kind == "correcao"
     assert len(registro.content_sha256) == 64
 
@@ -48,11 +48,11 @@ def test_versoes_distintas_coexistem(session) -> None:
             kind="correcao",
             source="AASP",
             source_url="",
-            version="2026.09",
-            updated_at="2026-10-01",
+            version="2026.10",
+            updated_at="2026-11-01",
             coverage_start="1992-01",
-            coverage_end="2026-09",
-            total_records=417,
+            coverage_end="2026-10",
+            total_records=418,
             content_sha256="0" * 64,
         )
     )
@@ -60,4 +60,4 @@ def test_versoes_distintas_coexistem(session) -> None:
     registros = session.scalars(select(IndexerVersion)).all()
     assert len(registros) == 4
     versoes = sorted(r.version for r in registros if r.key == "tjsp_tabela_pratica")
-    assert versoes == ["2026.08", "2026.09"]
+    assert versoes == ["2026.09", "2026.10"]

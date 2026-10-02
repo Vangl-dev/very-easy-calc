@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 
-from app.core.money import to_decimal
+from app.core.money import percentual_txt, to_decimal
 
 
 def dec_memoria(valor: object | None) -> Decimal | None:
@@ -32,13 +32,11 @@ def brl_memoria(valor: object | None) -> str:
 
 
 def pct_memoria(valor: object | None) -> str:
+    """Percentual fracionado (0.85) exibido como porcentagem (85%)."""
     d = dec_memoria(valor)
     if d is None:
         return ""
-    texto = format(d, "f")
-    if "." in texto:
-        texto = texto.rstrip("0").rstrip(".")
-    return f"{texto}%"
+    return percentual_txt(d)
 
 
 def rotulo_sim_nao(flag: object) -> str:
@@ -61,6 +59,9 @@ def criterios_txt(criterios: dict) -> list[tuple[str, str]]:
     multa = criterios.get("multa") or {}
     honorarios = criterios.get("honorarios") or {}
     alimentos = criterios.get("alimentos")
+    verbas = criterios.get("verbas") or []
+    correcao_por_verba = any(v.get("inicio_correcao") for v in verbas)
+    juros_por_verba = any(v.get("inicio_juros") for v in verbas)
     linhas: list[tuple[str, str]] = [
         ("Data-base", criterios.get("data_base") or ""),
         (
@@ -68,6 +69,8 @@ def criterios_txt(criterios: dict) -> list[tuple[str, str]]:
             (
                 f"sim — {correcao.get('indexador')}"
                 if correcao.get("aplicar")
+                else "sim — configurada por verba"
+                if correcao_por_verba
                 else "não aplicada"
             ),
         ),
@@ -76,12 +79,21 @@ def criterios_txt(criterios: dict) -> list[tuple[str, str]]:
             (
                 f"sim — {juros.get('modalidade')}"
                 if juros.get("aplicar")
+                else "sim — configurada por verba"
+                if juros_por_verba
                 else "não aplicados"
             ),
         ),
         ("Multa", critério_encargo_txt(multa)),
         ("Honorários", critério_encargo_txt(honorarios)),
     ]
+    if verbas:
+        linhas.append(
+            (
+                "Verbas",
+                f"{len(verbas)} rubrica(s) — correção e juros com datas próprias",
+            )
+        )
     if alimentos:
         regras = alimentos.get("regras") or []
         partes = []

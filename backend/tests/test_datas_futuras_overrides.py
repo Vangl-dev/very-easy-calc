@@ -24,33 +24,33 @@ def client(tmp_path):
 def test_cobertura_oficial_tjsp(client: TestClient) -> None:
     body = client.get("/api/indexers/tjsp_tabela_pratica/cobertura").json()
     assert body["key"] == "tjsp_tabela_pratica"
-    assert body["oficial"]["fim"] == "2026-08"
-    assert body["oficial"]["version"] == "2026.08"
+    assert body["oficial"]["fim"] == "2026-09"
+    assert body["oficial"]["version"] == "2026.09"
     assert body["manual"] == []
-    assert body["cobertura_efetiva"]["fim"] == "2026-08"
+    assert body["cobertura_efetiva"]["fim"] == "2026-09"
     assert body["cobertura_efetiva"]["inclui_manual"] is False
 
 
 def test_cadastro_manual_preenche_futuro_fora_da_oficial(client: TestClient) -> None:
     payload = {
-        "competencia": "2026-09",
+        "competencia": "2026-10",
         "valor": "1.0123",
         "fonte": "Diário Oficial manual",
-        "observacao": "vigência a partir de set/2026",
+        "observacao": "vigência a partir de out/2026",
     }
     response = client.post("/api/indexers/tjsp_tabela_pratica/overrides", json=payload)
     assert response.status_code == 201
     body = response.json()
     assert body["key"] == "tjsp_tabela_pratica"
-    assert body["competencia"] == "2026-09"
+    assert body["competencia"] == "2026-10"
     assert float(body["valor"]) == 1.0123
     assert body["fonte"] == "Diário Oficial manual"
 
     cobertura = client.get("/api/indexers/tjsp_tabela_pratica/cobertura").json()
-    assert cobertura["manual"][0]["competencia"] == "2026-09"
-    assert cobertura["cobertura_efetiva"]["fim"] == "2026-09"
+    assert cobertura["manual"][0]["competencia"] == "2026-10"
+    assert cobertura["cobertura_efetiva"]["fim"] == "2026-10"
     assert cobertura["cobertura_efetiva"]["inclui_manual"] is True
-    assert cobertura["oficial"]["fim"] == "2026-08"
+    assert cobertura["oficial"]["fim"] == "2026-09"
 
     lista = client.get("/api/indexers/tjsp_tabela_pratica/overrides").json()
     assert len(lista["overrides"]) == 1
@@ -105,7 +105,7 @@ def test_sem_override_cobertura_futura_retorna_coverage_error(client: TestClient
     body = response.json()
     assert body["erro"] == "cobertura_insuficiente"
     assert body["indexador"] == "Tabela Prática TJSP"
-    assert "08/2026" in body["mensagem"] or body["cobertura"]["fim"] == "08/2026"
+    assert "09/2026" in body["mensagem"] or body["cobertura"]["fim"] == "09/2026"
 
 
 def test_atualizacao_com_override_manual(client: TestClient) -> None:
@@ -113,10 +113,10 @@ def test_atualizacao_com_override_manual(client: TestClient) -> None:
         client.post(
             "/api/indexers/tjsp_tabela_pratica/overrides",
             json={
-                "competencia": "2026-09",
+                "competencia": "2026-10",
                 "valor": "8.620000",
                 "fonte": "Ata de vigência futura",
-                "observacao": "continuação da série acumulada após 08/2026",
+                "observacao": "continuação da série acumulada após 09/2026",
             },
         ).status_code
         == 201
@@ -125,7 +125,7 @@ def test_atualizacao_com_override_manual(client: TestClient) -> None:
         "tipo": "atualizacao",
         "titulo": "Valor da causa",
         "processo": "000999-00.2024.8.26.0100",
-        "data_base": "2026-09-30",
+        "data_base": "2026-10-31",
         "valor_base": {
             "valor": "10000.00",
             "data_base": "2024-01-15",
@@ -145,7 +145,7 @@ def test_atualizacao_com_override_manual(client: TestClient) -> None:
     atualizacao = memoria["atualizacao"]
     assert atualizacao["valor_original"] == "10000.00"
     assert atualizacao["data_base"] == "2024-01-15"
-    assert atualizacao["data_final"] == "2026-09-30"
+    assert atualizacao["data_final"] == "2026-10-31"
     assert atualizacao["indexador"] == "tjsp_tabela_pratica"
     assert atualizacao["fator_inicial"] is not None
     assert atualizacao["fator_final"] == "8.620000"
@@ -153,12 +153,12 @@ def test_atualizacao_com_override_manual(client: TestClient) -> None:
     assert float(atualizacao["valor_corrigido"]) > 10000.0
     assert atualizacao["valor_atualizado"] == body["parcelas"][0]["total"]
     assert any(
-        o["key"] == "tjsp_tabela_pratica" and o["competencia"] == "2026-09"
+        o["key"] == "tjsp_tabela_pratica" and o["competencia"] == "2026-10"
         for o in memoria["overrides_utilizados"]
     )
     bases = {b["key"]: b for b in memoria["bases"]}
     assert "tjsp_tabela_pratica" in bases
-    assert bases["tjsp_tabela_pratica"]["versao"] == "2026.08"
+    assert bases["tjsp_tabela_pratica"]["versao"] == "2026.09"
 
 
 def test_atualizacao_sem_data_final_usa_data_base_do_payload(client: TestClient) -> None:

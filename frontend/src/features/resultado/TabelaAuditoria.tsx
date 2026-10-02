@@ -14,13 +14,17 @@ type LinhaAuditoria = {
   valorOriginal: string;
   inicioCorrecao: string;
   correcao: string;
+  indice: string;
   inicioJuros: string;
   juros: string;
   multa: string;
   honorarios: string;
   pagamento: string;
+  diferenca: string;
   saldo: string;
   total: string;
+  salarioMinimo: string;
+  percentual: string;
   chaveVerba: string;
 };
 
@@ -35,7 +39,20 @@ function monetario(valor: unknown): string {
   });
 }
 
-function extrairLinhas(calculo: CalculoCriado): LinhaAuditoria[] {
+function percentual(valor: unknown): string {
+  if (valor === null || valor === undefined || valor === "") return "—";
+  const n = Number(valor);
+  if (Number.isNaN(n)) return String(valor);
+  return `${n.toLocaleString("pt-BR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })}%`;
+}
+
+function extrairLinhas(
+  calculo: CalculoCriado,
+  ehAlimentos: boolean,
+): LinhaAuditoria[] {
   const parcelas = (calculo.parcelas ?? []) as Array<Record<string, unknown>>;
   const memoria = (calculo.memoria ?? {}) as {
     verbas?: Array<{ id?: string; nome?: string }>;
@@ -50,13 +67,19 @@ function extrairLinhas(calculo: CalculoCriado): LinhaAuditoria[] {
     const correcao = (p.correcao ?? {}) as {
       correcao?: string;
       termo_inicial?: string;
+      fator_exibicao?: string | null;
+      razao?: string | null;
     };
     const juros = (p.juros ?? {}) as { juros?: string };
     const multa = (p.multa ?? {}) as { valor?: string };
     const honorarios = (p.honorarios ?? {}) as { valor?: string };
-    const chaveVerba = verba.id ?? `sem-verba-${indice}`;
+    const chaveVerba =
+      verba.id ?? (ehAlimentos ? "alimentos" : `sem-verba-${indice}`);
     const nomeVerba =
-      verba.nome || mapaVerba.get(verba.id ?? "") || (p.descricao as string) || "—";
+      verba.nome ||
+      mapaVerba.get(verba.id ?? "") ||
+      (ehAlimentos ? "Alimentos" : (p.descricao as string)) ||
+      "—";
     return {
       numero: Number(p.numero ?? indice + 1),
       verba: nomeVerba,
@@ -66,19 +89,30 @@ function extrairLinhas(calculo: CalculoCriado): LinhaAuditoria[] {
       valorOriginal: String(p.principal ?? ""),
       inicioCorrecao: String(p.inicio_correcao ?? correcao.termo_inicial ?? ""),
       correcao: String(correcao.correcao ?? "0.00"),
+      indice: String(correcao.fator_exibicao ?? correcao.razao ?? ""),
       inicioJuros: String(p.inicio_juros ?? ""),
       juros: String(juros.juros ?? "0.00"),
       multa: String(multa.valor ?? "0.00"),
       honorarios: String(honorarios.valor ?? "0.00"),
       pagamento: String(p.total_pago ?? "0.00"),
+      diferenca: String(p.diferenca ?? ""),
       saldo: String(p.saldo ?? "0.00"),
       total: String(p.total ?? "0.00"),
+      salarioMinimo: String(p.salario_minimo ?? ""),
+      percentual: String(p.percentual ?? ""),
       chaveVerba,
     };
   });
 }
 
-const COLUNAS: Array<{ key: keyof LinhaAuditoria; header: string; monetario?: boolean }> = [
+type Coluna = {
+  key: keyof LinhaAuditoria;
+  header: string;
+  monetario?: boolean;
+  percentual?: boolean;
+};
+
+const COLUNAS_CIVEL: Coluna[] = [
   { key: "verba", header: "Verba" },
   { key: "competenciaRotulo", header: "Competência" },
   { key: "vencimento", header: "Vencimento" },
@@ -94,12 +128,35 @@ const COLUNAS: Array<{ key: keyof LinhaAuditoria; header: string; monetario?: bo
   { key: "total", header: "Total", monetario: true },
 ];
 
+const COLUNAS_ALIMENTOS: Coluna[] = [
+  { key: "verba", header: "Verba" },
+  { key: "competenciaRotulo", header: "Competência" },
+  { key: "vencimento", header: "Vencimento" },
+  { key: "salarioMinimo", header: "Salário mínimo", monetario: true },
+  { key: "percentual", header: "% devido", percentual: true },
+  { key: "valorOriginal", header: "Devido", monetario: true },
+  { key: "inicioCorrecao", header: "Início correção" },
+  { key: "correcao", header: "Correção", monetario: true },
+  { key: "indice", header: "Índice" },
+  { key: "inicioJuros", header: "Início juros" },
+  { key: "juros", header: "Juros", monetario: true },
+  { key: "pagamento", header: "Pago", monetario: true },
+  { key: "diferenca", header: "Diferença", monetario: true },
+  { key: "saldo", header: "Saldo", monetario: true },
+  { key: "total", header: "Total", monetario: true },
+];
+
 interface Props {
   calculo: CalculoCriado;
 }
 
 export function TabelaAuditoria({ calculo }: Props) {
-  const linhas = useMemo(() => extrairLinhas(calculo), [calculo]);
+  const ehAlimentos = calculo.tipo === "alimentos";
+  const colunas = ehAlimentos ? COLUNAS_ALIMENTOS : COLUNAS_CIVEL;
+  const linhas = useMemo(
+    () => extrairLinhas(calculo, ehAlimentos),
+    [calculo, ehAlimentos],
+  );
   const [copiado, setCopiado] = useState(false);
   const resumo = calculo.resumo;
 
@@ -120,14 +177,18 @@ export function TabelaAuditoria({ calculo }: Props) {
     }));
   }, [linhas]);
 
+  function formatarCelula(coluna: Coluna, valor: unknown): string {
+    if (coluna.monetario) return monetario(valor);
+    if (coluna.percentual) return percentual(valor);
+    if (coluna.key === "vencimento") return formatarDataBR(String(valor ?? ""));
+    return String(valor ?? "—");
+  }
+
   async function copiarTabela() {
-    const cabecalho = COLUNAS.map((c) => c.header).join("\t");
+    const cabecalho = colunas.map((c) => c.header).join("\t");
     const corpo = linhas
       .map((linha) =>
-        COLUNAS.map((c) => {
-          const valor = linha[c.key];
-          return c.monetario ? monetario(valor) : String(valor ?? "");
-        }).join("\t"),
+        colunas.map((c) => formatarCelula(c, linha[c.key])).join("\t"),
       )
       .join("\n");
     const texto = `${cabecalho}\n${corpo}\n\nTotal (backend):\t${monetario(resumo?.total)}\nSaldo (backend):\t${monetario(resumo?.saldo)}`;
@@ -153,16 +214,22 @@ export function TabelaAuditoria({ calculo }: Props) {
         <Message tom="info">Nenhuma parcela na memória deste cálculo.</Message>
       ) : (
         <div className="overflow-auto rounded-xl border border-ink-200 bg-white max-h-[70vh]">
-          <table className="min-w-[1400px] border-collapse text-sm">
+          <table
+            className={`${
+              ehAlimentos ? "min-w-[1650px]" : "min-w-[1400px]"
+            } border-collapse text-sm`}
+          >
             <thead className="sticky top-0 z-20 bg-ink-900 text-left text-xs uppercase tracking-wide text-white">
               <tr>
-                {COLUNAS.map((coluna, idx) => (
+                {colunas.map((coluna, idx) => (
                   <th
                     key={coluna.key}
                     scope="col"
                     className={[
                       "border-b border-ink-700 px-3 py-2.5 font-semibold",
-                      coluna.monetario ? "text-right" : "text-left",
+                      coluna.monetario || coluna.percentual
+                        ? "text-right"
+                        : "text-left",
                       idx === 0
                         ? "sticky left-0 z-30 bg-ink-900 min-w-[140px]"
                         : "",
@@ -178,10 +245,10 @@ export function TabelaAuditoria({ calculo }: Props) {
                 <Fragment key={`grupo-${grupo.chave}`}>
                   <tr className="bg-brand-50">
                     <td
-                      colSpan={COLUNAS.length}
+                      colSpan={colunas.length}
                       className="sticky left-0 border-b border-brand-200 px-3 py-2 text-sm font-semibold text-brand-900"
                     >
-                      Verba: {grupo.nome}
+                      {ehAlimentos ? "Alimentos" : `Verba: ${grupo.nome}`}
                       <span className="ml-2 text-xs font-normal text-brand-700">
                         ({grupo.linhas.length}{" "}
                         {grupo.linhas.length === 1 ? "parcela" : "parcelas"})
@@ -197,14 +264,14 @@ export function TabelaAuditoria({ calculo }: Props) {
                         "hover:bg-brand-50/40",
                       ].join(" ")}
                     >
-                      {COLUNAS.map((coluna, colIdx) => {
+                      {colunas.map((coluna, colIdx) => {
                         const valor = linha[coluna.key];
                         return (
                           <td
                             key={coluna.key}
                             className={[
                               "px-3 py-2 align-middle text-ink-800",
-                              coluna.monetario
+                              coluna.monetario || coluna.percentual
                                 ? "text-right font-mono tabular-nums"
                                 : "text-left",
                               colIdx === 0
@@ -212,11 +279,7 @@ export function TabelaAuditoria({ calculo }: Props) {
                                 : "",
                             ].join(" ")}
                           >
-                            {coluna.monetario
-                              ? monetario(valor)
-                              : coluna.key === "vencimento"
-                                ? formatarDataBR(String(valor ?? ""))
-                                : String(valor ?? "—")}
+                            {formatarCelula(coluna, valor)}
                           </td>
                         );
                       })}
@@ -228,7 +291,7 @@ export function TabelaAuditoria({ calculo }: Props) {
             <tfoot className="sticky bottom-0 z-20 bg-ink-100 text-sm font-semibold text-ink-900">
               <tr>
                 <td
-                  colSpan={COLUNAS.length}
+                  colSpan={colunas.length}
                   className="border-t-2 border-ink-300 px-3 py-2.5"
                 >
                   <div className="flex flex-wrap gap-x-6 gap-y-1">

@@ -23,6 +23,20 @@ THIN = Side(style="thin", color="BBBBBB")
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 ALINHAMENTO = Alignment(vertical="center", wrap_text=True)
 ALINHAMENTO_DIR = Alignment(vertical="center", horizontal="right")
+MOEDA_HEADERS = {
+    "Principal",
+    "Salário mínimo",
+    "Pagamentos",
+    "Diferença",
+    "Saldo",
+    "Correção",
+    "Juros",
+    "Multa",
+    "Honorários",
+    "Total",
+    "Total pago",
+    "Adicional",
+}
 
 
 def _moeda(valor: object | None) -> float | None:
@@ -169,9 +183,13 @@ def _planilha_parcelas(wb: Workbook, memoria: dict) -> None:
         "Percentual",
         "Regra / detalhe",
         "Pagamentos",
+        "Diferença",
         "Saldo",
+        "Início correção",
         "Correção",
+        "Índice (fator)",
         "Correção aplicada",
+        "Início juros",
         "Juros",
         "Juros aplicados",
         "Multa",
@@ -210,9 +228,13 @@ def _planilha_parcelas(wb: Workbook, memoria: dict) -> None:
             _moeda(percentual),
             detalhe,
             _moeda(parcela.get("total_pago")),
+            _moeda(parcela.get("diferenca")),
             _moeda(parcela.get("saldo")),
+            parcela.get("inicio_correcao") or "",
             _moeda(correcao.get("correcao")),
+            str(correcao.get("fator_exibicao") or correcao.get("razao") or ""),
             correcao.get("aplicado"),
+            parcela.get("inicio_juros") or "",
             _moeda(juros.get("juros")),
             juros.get("aplicado"),
             _moeda(multa.get("valor")),
@@ -229,17 +251,23 @@ def _planilha_parcelas(wb: Workbook, memoria: dict) -> None:
             celula = ws.cell(row, col)
             celula.border = BORDER
             celula.alignment = ALINHAMENTO
-        for col in (5, 6, 9, 10, 11, 13, 15, 17, 19, 20, 21):
-            ws.cell(row, col).number_format = 'R$ #,##0.00'
-            ws.cell(row, col).alignment = ALINHAMENTO_DIR
-        if percentual is not None:
-            ws.cell(row, 7).number_format = "0.####"
-            ws.cell(row, 7).alignment = ALINHAMENTO_DIR
+        for col, header in enumerate(cabecalhos, start=1):
+            celula = ws.cell(row, col)
+            if header in MOEDA_HEADERS:
+                celula.number_format = "R$ #,##0.00"
+                celula.alignment = ALINHAMENTO_DIR
+            elif header == "Percentual":
+                celula.number_format = "0.####"
+                celula.alignment = ALINHAMENTO_DIR
 
     if not parcelas:
         ws.append(["Nenhuma parcela registrada na memória."])
 
-    _larguras(ws, [10, 14, 14, 36, 14, 16, 12, 28, 14, 14, 14, 14, 12, 14, 12, 14, 14, 16, 14, 14, 14])
+    _larguras(
+        ws,
+        [10, 14, 14, 34, 14, 16, 12, 26, 14, 14, 14, 14, 14, 14, 14, 14, 12, 14,
+         12, 14, 14, 16, 14, 14, 14],
+    )
     ws.auto_filter.ref = f"A1:{get_column_letter(len(cabecalhos))}{max(1, ws.max_row)}"
     ws.freeze_panes = "A2"
 

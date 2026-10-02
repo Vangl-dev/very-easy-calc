@@ -321,6 +321,13 @@ def test_xlsx_planilhas_e_valores_da_memoria() -> None:
     assert isinstance(mapa["Salário mínimo"], (int, float))
     assert not isinstance(mapa["Principal"], str)
     assert not isinstance(mapa["Salário mínimo"], str)
+    # percentual fracionado exibido como porcentagem
+    assert "30%" in str(mapa["Regra / detalhe"])
+    assert "0.30%" not in str(mapa["Regra / detalhe"])
+    # memória antiga (1.0) não tinha início de correção/juros nem diferença
+    assert not mapa["Início correção"]
+    assert not mapa["Início juros"]
+    assert mapa["Diferença"] is None
 
 
 def test_xlsx_api_valores_correspondem_a_memoria(client: TestClient) -> None:
@@ -341,6 +348,9 @@ def test_xlsx_api_valores_correspondem_a_memoria(client: TestClient) -> None:
         assert mapa["Saldo"] == float(memoria_p["saldo"])
         assert mapa["Total"] == float(memoria_p["total"])
         assert mapa["Pagamentos"] == float(memoria_p["total_pago"])
+        assert mapa["Diferença"] == float(memoria_p["diferenca"])
+        assert (mapa["Início correção"] or "") == (memoria_p["inicio_correcao"] or "")
+        assert (mapa["Início juros"] or "") == (memoria_p["inicio_juros"] or "")
 
 
 def test_xlsx_muitas_parcelas(client: TestClient) -> None:

@@ -16,18 +16,18 @@ def test_correcao_aplicada_exemplo_oficial() -> None:
         "1000",
         ConfigCorrecao(
             termo_inicial=Competencia(1995, 1),
-            termo_final=Competencia(2026, 6),
+            termo_final=Competencia(2026, 9),
         ),
     )
     assert resultado.aplicado is True
     assert resultado.fator_inicial == D("1.133251")
-    assert resultado.fator_final == D("8.560658")
-    assert resultado.valor_corrigido == D("7554.07")
-    assert resultado.correcao == D("6554.07")
+    assert resultado.fator_final == D("8.566509")
+    assert resultado.valor_corrigido == D("7559.23")
+    assert resultado.correcao == D("6559.23")
     assert resultado.principal + resultado.correcao == resultado.valor_corrigido
-    assert resultado.indexador_versao == "2026.08"
+    assert resultado.indexador_versao == "2026.09"
     assert resultado.indexador_fonte == "AASP"
-    assert resultado.fator_exibicao == D("7.554071")
+    assert resultado.fator_exibicao == D("7.559234")
 
 
 def test_nao_aplicar_e_explicito() -> None:
@@ -81,7 +81,7 @@ def test_fora_da_cobertura_nao_usa_indice_silenciosamente() -> None:
     with pytest.raises(CoverageError):
         calcular_correcao(
             "1000",
-            ConfigCorrecao(termo_inicial=Competencia(2026, 1), termo_final=Competencia(2026, 9)),
+            ConfigCorrecao(termo_inicial=Competencia(2026, 1), termo_final=Competencia(2026, 10)),
         )
 
 
