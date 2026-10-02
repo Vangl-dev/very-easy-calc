@@ -39,3 +39,11 @@ export function competenciaValida(competencia: string): boolean {
   }
   return false;
 }
+
+/** Converte data ISO (YYYY-MM-DD) em competência MM/AAAA — só formatação. */
+export function competenciaDeData(iso: string): string | null {
+  if (!iso || iso.length < 7) return null;
+  const [ano, mes] = iso.split("-");
+  if (!ano || !mes) return null;
+  return `${mes}/${ano}`;
+}

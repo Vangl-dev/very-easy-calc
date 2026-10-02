@@ -111,14 +111,6 @@ export function rotuloTipoCalculo(tipo: string): string {
   }
 }
 
-/** Converte data ISO (YYYY-MM-DD) em rotulo MM/YYYY — só formatação, sem cálculo. */
-export function competenciaDeData(iso: string): string | null {
-  if (!iso || iso.length < 7) return null;
-  const [ano, mes] = iso.split("-");
-  if (!ano || !mes) return null;
-  return `${mes}/${ano}`;
-}
-
 export function mensagemErroAmigavel(erro: unknown): string {
   if (erro instanceof ErroApi) {
     if (erro.corpo.erro === "cobertura_insuficiente" || erro.coberturaInsuficiente) {

@@ -11,11 +11,16 @@ type LinhaAuditoria = {
   competencia: string;
   competenciaRotulo: string;
   vencimento: string;
+  dataPagamento: string;
+  mes: string;
+  ano: string;
   valorOriginal: string;
   inicioCorrecao: string;
   correcao: string;
   indice: string;
+  indiceInicial: string;
   inicioJuros: string;
+  diasJuros: string;
   juros: string;
   multa: string;
   honorarios: string;
@@ -43,10 +48,25 @@ function percentual(valor: unknown): string {
   if (valor === null || valor === undefined || valor === "") return "—";
   const n = Number(valor);
   if (Number.isNaN(n)) return String(valor);
-  return `${n.toLocaleString("pt-BR", {
+  return `${(n * 100).toLocaleString("pt-BR", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   })}%`;
+}
+
+function simples(valor: unknown): string {
+  if (valor === null || valor === undefined || valor === "") return "—";
+  return String(valor);
+}
+
+function numeroBr(valor: unknown): string {
+  if (valor === null || valor === undefined || valor === "") return "—";
+  const n = Number(valor);
+  if (Number.isNaN(n)) return String(valor);
+  return n.toLocaleString("pt-BR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 6,
+  });
 }
 
 function extrairLinhas(
@@ -67,12 +87,19 @@ function extrairLinhas(
     const correcao = (p.correcao ?? {}) as {
       correcao?: string;
       termo_inicial?: string;
+      fator_inicial?: string;
       fator_exibicao?: string | null;
       razao?: string | null;
     };
-    const juros = (p.juros ?? {}) as { juros?: string };
+    const juros = (p.juros ?? {}) as {
+      juros?: string;
+      trechos?: Array<{ dias?: number }>;
+    };
     const multa = (p.multa ?? {}) as { valor?: string };
     const honorarios = (p.honorarios ?? {}) as { valor?: string };
+    const pagamentos = (p.pagamentos ?? []) as Array<{ data?: string }>;
+    const competencia = String(p.competencia ?? "");
+    const [anoComp, mesComp] = competencia.split("-");
     const chaveVerba =
       verba.id ?? (ehAlimentos ? "alimentos" : `sem-verba-${indice}`);
     const nomeVerba =
@@ -83,14 +110,19 @@ function extrairLinhas(
     return {
       numero: Number(p.numero ?? indice + 1),
       verba: nomeVerba,
-      competencia: String(p.competencia ?? ""),
+      competencia,
       competenciaRotulo: String(p.competencia_rotulo ?? p.competencia ?? ""),
       vencimento: String(p.vencimento ?? ""),
+      dataPagamento: String(pagamentos[0]?.data ?? ""),
+      mes: mesComp ?? "",
+      ano: anoComp ?? "",
       valorOriginal: String(p.principal ?? ""),
       inicioCorrecao: String(p.inicio_correcao ?? correcao.termo_inicial ?? ""),
       correcao: String(correcao.correcao ?? "0.00"),
       indice: String(correcao.fator_exibicao ?? correcao.razao ?? ""),
+      indiceInicial: String(correcao.fator_inicial ?? ""),
       inicioJuros: String(p.inicio_juros ?? ""),
+      diasJuros: String(juros.trechos?.[0]?.dias ?? ""),
       juros: String(juros.juros ?? "0.00"),
       multa: String(multa.valor ?? "0.00"),
       honorarios: String(honorarios.valor ?? "0.00"),
@@ -110,6 +142,7 @@ type Coluna = {
   header: string;
   monetario?: boolean;
   percentual?: boolean;
+  numero?: boolean;
 };
 
 const COLUNAS_CIVEL: Coluna[] = [
@@ -129,21 +162,23 @@ const COLUNAS_CIVEL: Coluna[] = [
 ];
 
 const COLUNAS_ALIMENTOS: Coluna[] = [
-  { key: "verba", header: "Verba" },
-  { key: "competenciaRotulo", header: "Competência" },
+  { key: "dataPagamento", header: "Data do pagamento" },
+  { key: "mes", header: "Mês" },
+  { key: "ano", header: "Ano" },
   { key: "vencimento", header: "Vencimento" },
+  { key: "indiceInicial", header: "Índice inicial", numero: true },
   { key: "salarioMinimo", header: "Salário mínimo", monetario: true },
-  { key: "percentual", header: "% devido", percentual: true },
-  { key: "valorOriginal", header: "Devido", monetario: true },
-  { key: "inicioCorrecao", header: "Início correção" },
-  { key: "correcao", header: "Correção", monetario: true },
-  { key: "indice", header: "Índice" },
-  { key: "inicioJuros", header: "Início juros" },
-  { key: "juros", header: "Juros", monetario: true },
-  { key: "pagamento", header: "Pago", monetario: true },
+  { key: "percentual", header: "Percentual", percentual: true },
+  { key: "valorOriginal", header: "Valor devido", monetario: true },
+  { key: "pagamento", header: "Valor pago", monetario: true },
   { key: "diferenca", header: "Diferença", monetario: true },
+  { key: "indice", header: "Índice/fator atual", numero: true },
+  { key: "correcao", header: "Correção", monetario: true },
+  { key: "diasJuros", header: "Dias de juros", numero: true },
+  { key: "juros", header: "Juros", monetario: true },
+  { key: "multa", header: "Multa", monetario: true },
   { key: "saldo", header: "Saldo", monetario: true },
-  { key: "total", header: "Total", monetario: true },
+  { key: "total", header: "Subtotal / Total", monetario: true },
 ];
 
 interface Props {
@@ -180,8 +215,11 @@ export function TabelaAuditoria({ calculo }: Props) {
   function formatarCelula(coluna: Coluna, valor: unknown): string {
     if (coluna.monetario) return monetario(valor);
     if (coluna.percentual) return percentual(valor);
-    if (coluna.key === "vencimento") return formatarDataBR(String(valor ?? ""));
-    return String(valor ?? "—");
+    if (coluna.numero) return numeroBr(valor);
+    if (coluna.key === "vencimento" || coluna.key === "dataPagamento") {
+      return formatarDataBR(String(valor ?? ""));
+    }
+    return simples(valor);
   }
 
   async function copiarTabela() {
@@ -216,7 +254,7 @@ export function TabelaAuditoria({ calculo }: Props) {
         <div className="overflow-auto rounded-xl border border-ink-200 bg-white max-h-[70vh]">
           <table
             className={`${
-              ehAlimentos ? "min-w-[1650px]" : "min-w-[1400px]"
+              ehAlimentos ? "min-w-[2100px]" : "min-w-[1400px]"
             } border-collapse text-sm`}
           >
             <thead className="sticky top-0 z-20 bg-ink-900 text-left text-xs uppercase tracking-wide text-white">
@@ -227,7 +265,7 @@ export function TabelaAuditoria({ calculo }: Props) {
                     scope="col"
                     className={[
                       "border-b border-ink-700 px-3 py-2.5 font-semibold",
-                      coluna.monetario || coluna.percentual
+                      coluna.monetario || coluna.percentual || coluna.numero
                         ? "text-right"
                         : "text-left",
                       idx === 0
@@ -271,7 +309,7 @@ export function TabelaAuditoria({ calculo }: Props) {
                             key={coluna.key}
                             className={[
                               "px-3 py-2 align-middle text-ink-800",
-                              coluna.monetario || coluna.percentual
+                              coluna.monetario || coluna.percentual || coluna.numero
                                 ? "text-right font-mono tabular-nums"
                                 : "text-left",
                               colIdx === 0

@@ -1,229 +1,232 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
-import { Input } from "../../components/ui/Form";
+import { Input, Select } from "../../components/ui/Form";
+import { Message } from "../../components/ui/Message";
 import { Tooltip } from "../../components/ui/Tooltip";
-import { SecaoBlocosAlimentos, novaRegraAlimento } from "./SecaoBlocosAlimentos";
+import { CabecalhoFormulario } from "./FluxoFormulario";
+import { SecaoIdentificacao } from "./SecaoIdentificacao";
 import {
-  SecaoAtualizacaoAlimentos,
-  estadoAtualizacaoInicial,
-  type EstadoAtualizacaoAlimentos,
-} from "./SecaoAtualizacaoAlimentos";
-import {
-  SecaoPagamentosAlimentos,
-  type EstadoPagamentoAlimento,
-} from "./SecaoPagamentosAlimentos";
-import { SecaoIdentificacao, type EstadoIdentificacao } from "./SecaoIdentificacao";
-import {
-  CampoResumo,
-  CabecalhoFormulario,
-  CartaoRevisao,
-  type Passo,
-} from "./FluxoFormulario";
-import { ResultadoSucesso } from "./ResultadoSucesso";
+  estadoInicialAlimentos,
+  montarPayloadAlimentos,
+  novaRegra,
+  novoPagamento,
+  validarAlimentos,
+  type EstadoAlimentos,
+  type PagamentoAlimento,
+  type RegraAlimento,
+  type TipoRegraAlimento,
+} from "./alimentos";
 import { api, mensagemErroAmigavel } from "../../lib/api";
-import {
-  competenciaValida,
-  fimDoMesISO,
-  rotuloCompetencia,
-} from "../../lib/competencia";
-import type {
-  CalculoAlimentosPayload,
-  CalculoCriado,
-  PagamentoPayload,
-  RegraAlimentoPayload,
-} from "../../types/api";
+import { competenciaValida, rotuloCompetencia } from "../../lib/competencia";
 
-interface EstadoAlimentos {
-  identificacao: EstadoIdentificacao;
-  ate: string;
-  diaVencimento: string;
-  dataBase: string;
-  regras: ReturnType<typeof novaRegraAlimento>[];
-  pagamentos: EstadoPagamentoAlimento[];
-  atualizacao: EstadoAtualizacaoAlimentos;
+interface BlocoRegraProps {
+  regra: RegraAlimento;
+  indice: number;
+  total: number;
+  onChange: (parcial: Partial<RegraAlimento>) => void;
+  onRemover: () => void;
 }
 
-function estadoInicial(): EstadoAlimentos {
-  return {
-    identificacao: { titulo: "", processo: "", parte: "" },
-    ate: "",
-    diaVencimento: "10",
-    dataBase: "",
-    regras: [
-      novaRegraAlimento({
-        inicio: "",
-        fim: "",
-        tipo: "salario_minimo",
-        percentual: "0.30",
-      }),
-    ],
-    pagamentos: [],
-    atualizacao: estadoAtualizacaoInicial(),
-  };
+function BlocoRegra({ regra, indice, total, onChange, onRemover }: BlocoRegraProps) {
+  const rotulo = `Regra ${indice + 1}`;
+  return (
+    <li className="space-y-3 rounded-xl border border-ink-200 bg-white p-4">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-semibold text-ink-900">{rotulo}</span>
+        {total > 1 ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onRemover}
+            aria-label={`Remover ${rotulo}`}
+          >
+            Remover
+          </Button>
+        ) : null}
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+        <Select
+          id={`regra-tipo-${regra.id}`}
+          label="Como calcular"
+          value={regra.tipo}
+          onChange={(e) => onChange({ tipo: e.target.value as TipoRegraAlimento })}
+        >
+          <option value="percentual">Percentual do salário mínimo</option>
+          <option value="fixo">Valor fixo</option>
+        </Select>
+
+        {regra.tipo === "percentual" ? (
+          <Input
+            id={`regra-percentual-${regra.id}`}
+            label="Percentual do salário mínimo (%)"
+            required
+            inputMode="decimal"
+            value={regra.percentual}
+            onChange={(e) => onChange({ percentual: e.target.value })}
+            placeholder="85"
+            hint="85 = 85% do salário mínimo de cada mês"
+          />
+        ) : (
+          <Input
+            id={`regra-valor-${regra.id}`}
+            label="Valor fixo (R$)"
+            required
+            inputMode="decimal"
+            value={regra.valor}
+            onChange={(e) => onChange({ valor: e.target.value })}
+            placeholder="1000,00"
+            hint="Valor devido em cada mês"
+          />
+        )}
+
+        <Input
+          id={`regra-inicio-${regra.id}`}
+          label="Mês/ano inicial"
+          required
+          value={regra.inicio}
+          onChange={(e) => onChange({ inicio: e.target.value })}
+          placeholder="04/2023"
+          hint={
+            regra.inicio && competenciaValida(regra.inicio)
+              ? rotuloCompetencia(regra.inicio)
+              : "Formato MM/AAAA"
+          }
+        />
+        <Input
+          id={`regra-fim-${regra.id}`}
+          label="Mês/ano final"
+          value={regra.fim}
+          onChange={(e) => onChange({ fim: e.target.value })}
+          placeholder="12/2025"
+          hint={
+            regra.fim
+              ? competenciaValida(regra.fim)
+                ? `até ${rotuloCompetencia(regra.fim)}`
+                : "Formato MM/AAAA"
+              : "Em branco = até o fim do período"
+          }
+        />
+      </div>
+    </li>
+  );
 }
 
-function errosValidacao(estado: EstadoAlimentos): string[] {
-  const erros: string[] = [];
-  if (!estado.identificacao.titulo.trim()) {
-    erros.push("Informe o nome/descrição do cálculo.");
-  }
-  if (!estado.ate.trim()) {
-    erros.push("Informe o período final (até).");
-  } else if (!competenciaValida(estado.ate)) {
-    erros.push("Período final inválido — use MM/AAAA ou YYYY-MM.");
-  }
-  if (!estado.regras.length) {
-    erros.push("Adicione ao menos um bloco de regra.");
-  }
-  estado.regras.forEach((regra, indice) => {
-    const rotulo = `Bloco ${indice + 1}`;
-    if (!regra.inicio.trim()) {
-      erros.push(`${rotulo}: informe a data inicial de vigência.`);
-    } else if (!competenciaValida(regra.inicio)) {
-      erros.push(`${rotulo}: início inválido (MM/AAAA ou YYYY-MM).`);
-    }
-    if (regra.fim.trim() && !competenciaValida(regra.fim)) {
-      erros.push(`${rotulo}: fim inválido (MM/AAAA ou YYYY-MM).`);
-    }
-    if (regra.tipo === "salario_minimo" && !regra.percentual.trim()) {
-      erros.push(`${rotulo}: informe o percentual do salário mínimo.`);
-    }
-    if (regra.tipo === "fixo" && !regra.valor.trim()) {
-      erros.push(`${rotulo}: informe o valor fixo.`);
-    }
-  });
-  estado.pagamentos.forEach((pg, indice) => {
-    if (!pg.competencia.trim()) {
-      erros.push(`Pagamento ${indice + 1}: informe a competência.`);
-    } else if (!competenciaValida(pg.competencia)) {
-      erros.push(
-        `Pagamento ${indice + 1}: competência inválida (MM/AAAA ou YYYY-MM).`,
-      );
-    }
-    if (!pg.data) erros.push(`Pagamento ${indice + 1}: informe a data.`);
-    if (!pg.valor.trim()) erros.push(`Pagamento ${indice + 1}: informe o valor.`);
-  });
-  if (
-    estado.atualizacao.jurosAplicar &&
-    estado.atualizacao.jurosModalidade === "fixa" &&
-    !estado.atualizacao.jurosTaxa.trim()
-  ) {
-    erros.push("Informe a taxa mensal dos juros (ex.: 0.01 = 1% ao mês).");
-  }
-  return erros;
+interface LinhaPagamentoProps {
+  pagamento: PagamentoAlimento;
+  indice: number;
+  onChange: (parcial: Partial<PagamentoAlimento>) => void;
+  onRemover: () => void;
 }
 
-function montarPayload(estado: EstadoAlimentos): CalculoAlimentosPayload {
-  const regras: RegraAlimentoPayload[] = estado.regras.map((regra) => {
-    const base: RegraAlimentoPayload = {
-      inicio: regra.inicio.trim(),
-      fim: regra.fim.trim() || null,
-      tipo: regra.tipo,
-      descricao: regra.descricao.trim(),
-    };
-    if (regra.tipo === "salario_minimo") {
-      return { ...base, percentual: regra.percentual.trim(), valor: null };
-    }
-    return { ...base, percentual: null, valor: regra.valor.trim() };
-  });
-
-  const pagamentos: PagamentoPayload[] = estado.pagamentos
-    .filter((pg) => pg.competencia.trim() && pg.data && pg.valor.trim())
-    .map((pg) => ({
-      competencia: pg.competencia.trim(),
-      data: pg.data,
-      valor: pg.valor.trim(),
-      descricao: (pg.descricao ?? "").trim(),
-    }));
-
-  const dataBase =
-    estado.dataBase.trim() || fimDoMesISO(estado.ate) || fimDoMesISO(estado.ate) || "";
-
-  return {
-    tipo: "alimentos",
-    titulo: estado.identificacao.titulo.trim(),
-    processo: estado.identificacao.processo.trim(),
-    parte: estado.identificacao.parte.trim(),
-    data_base: dataBase,
-    alimentos: {
-      regras,
-      ate: estado.ate.trim(),
-      dia_vencimento: Number(estado.diaVencimento) || 10,
-    },
-    correcao: {
-      aplicar: estado.atualizacao.correcaoAplicar,
-      indexador: estado.atualizacao.correcaoIndexador,
-      termo_inicial: null,
-      termo_final: null,
-    },
-    juros: {
-      aplicar: estado.atualizacao.jurosAplicar,
-      modalidade: estado.atualizacao.jurosModalidade,
-      taxa:
-        estado.atualizacao.jurosModalidade === "fixa"
-          ? estado.atualizacao.jurosTaxa.trim() || null
-          : null,
-      unidade: "mensal",
-      base: estado.atualizacao.jurosBase,
-      inicio: null,
-      fim: null,
-    },
-    multa: { aplicar: false },
-    honorarios: { aplicar: false },
-    pagamentos,
-  };
-}
-
-function rotuloRegra(regra: {
-  tipo: string;
-  percentual: string;
-  valor: string;
-  inicio: string;
-  fim: string;
-  descricao: string;
-}): string {
-  const vigencia = `${rotuloCompetencia(regra.inicio)}–${
-    regra.fim ? rotuloCompetencia(regra.fim) : "em diante"
-  }`;
-  if (regra.tipo === "salario_minimo") {
-    return `${vigencia}: ${regra.percentual || "?"} do salário mínimo`;
-  }
-  return `${vigencia}: valor fixo ${regra.valor || "?"}`;
+function LinhaPagamento({ pagamento, indice, onChange, onRemover }: LinhaPagamentoProps) {
+  return (
+    <tr className="border-b border-ink-100 bg-white last:border-b-0 hover:bg-ink-50/60">
+      <td className="px-3 py-2 align-top">
+        <Input
+          id={`pg-comp-${pagamento.id}`}
+          label="Competência"
+          required
+          value={pagamento.competencia}
+          onChange={(e) => onChange({ competencia: e.target.value })}
+          placeholder="01/2026"
+          hint={
+            pagamento.competencia && competenciaValida(pagamento.competencia)
+              ? rotuloCompetencia(pagamento.competencia)
+              : "MM/AAAA"
+          }
+        />
+      </td>
+      <td className="px-3 py-2 align-top">
+        <Input
+          id={`pg-data-${pagamento.id}`}
+          label="Data do pagamento"
+          required
+          type="date"
+          value={pagamento.data}
+          onChange={(e) => onChange({ data: e.target.value })}
+        />
+      </td>
+      <td className="px-3 py-2 align-top">
+        <Input
+          id={`pg-valor-${pagamento.id}`}
+          label="Valor pago"
+          required
+          inputMode="decimal"
+          value={pagamento.valor}
+          onChange={(e) => onChange({ valor: e.target.value })}
+          placeholder="200,00"
+        />
+      </td>
+      <td className="px-3 py-2 text-right align-bottom">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onRemover}
+          aria-label={`Remover pagamento ${indice + 1}`}
+        >
+          Remover
+        </Button>
+      </td>
+    </tr>
+  );
 }
 
 export function FormAlimentos() {
-  const [estado, setEstado] = useState<EstadoAlimentos>(estadoInicial);
-  const [passo, setPasso] = useState<Passo>("formulario");
+  const navigate = useNavigate();
+  const [estado, setEstado] = useState<EstadoAlimentos>(estadoInicialAlimentos);
   const [erros, setErros] = useState<string[]>([]);
   const [erroEnvio, setErroEnvio] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
-  const [resultado, setResultado] = useState<CalculoCriado | null>(null);
-
-  const sugestaoDataBase = useMemo(() => fimDoMesISO(estado.ate), [estado.ate]);
 
   function atualizar(parcial: Partial<EstadoAlimentos>) {
     setEstado((atual) => ({ ...atual, ...parcial }));
+    setErros([]);
+  }
+
+  function alterarRegra(id: string, parcial: Partial<RegraAlimento>) {
+    atualizar({
+      regras: estado.regras.map((r) => (r.id === id ? { ...r, ...parcial } : r)),
+    });
+  }
+
+  function removerRegra(id: string) {
+    atualizar({ regras: estado.regras.filter((r) => r.id !== id) });
+  }
+
+  function alterarPagamento(id: string, parcial: Partial<PagamentoAlimento>) {
+    atualizar({
+      pagamentos: estado.pagamentos.map((p) =>
+        p.id === id ? { ...p, ...parcial } : p,
+      ),
+    });
+  }
+
+  function removerPagamento(id: string) {
+    atualizar({ pagamentos: estado.pagamentos.filter((p) => p.id !== id) });
   }
 
   function reiniciar() {
-    setEstado(estadoInicial());
+    setEstado(estadoInicialAlimentos());
     setErros([]);
     setErroEnvio(null);
-    setResultado(null);
-    setPasso("formulario");
   }
 
-  async function enviar() {
-    setEnviando(true);
+  async function gerarCalculo() {
     setErroEnvio(null);
+    const lista = validarAlimentos(estado);
+    setErros(lista);
+    if (lista.length > 0) return;
+
+    setEnviando(true);
     try {
-      const criado = await api.criarCalculo(montarPayload(estado));
-      setResultado(criado);
-      setPasso("sucesso");
+      const criado = await api.criarCalculo(montarPayloadAlimentos(estado));
+      navigate(`/calculos/${encodeURIComponent(criado.codigo)}`);
     } catch (e) {
       setErroEnvio(mensagemErroAmigavel(e));
-      setPasso("revisao");
     } finally {
       setEnviando(false);
     }
@@ -233,193 +236,193 @@ export function FormAlimentos() {
     <div className="space-y-6">
       <CabecalhoFormulario
         eyebrow="Alimentos"
-        titulo="Novo cálculo de alimentos"
-        descricao="Blocos de regras (percentual do salário mínimo ou valor fixo) por competência. Cada competência é gerada no backend — o React não calcula salário mínimo nem aplica percentuais."
-        dica="O salário mínimo é consultado por competência no backend. Mudanças dentro do ano são respeitadas; não se usa o valor atual retroativamente."
+        titulo="Lançamento de alimentos"
+        descricao="Informe quem deve, quanto e desde quando, quanto já foi pago e até quando atualizar. O cálculo é gerado pelo backend — aqui você só lança os dados."
+        dica="Cada mês do período vira uma linha do cálculo, com o salário mínimo daquele mês, correção monetária e juros até a data da atualização."
       />
 
-      {passo === "sucesso" && resultado ? (
-        <ResultadoSucesso resultado={resultado} onReiniciar={reiniciar} />
+      {erros.length > 0 ? (
+        <Message tom="danger" title="Corrija antes de gerar">
+          <ul className="list-disc space-y-1 pl-5">
+            {erros.map((erro) => (
+              <li key={erro}>{erro}</li>
+            ))}
+          </ul>
+        </Message>
+      ) : null}
+      {erroEnvio ? (
+        <Message tom="danger" title="Falha no envio">
+          {erroEnvio}
+        </Message>
       ) : null}
 
-      {passo === "formulario" ? (
-        <form
-          className="space-y-6"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const lista = errosValidacao(estado);
-            setErros(lista);
-            setErroEnvio(null);
-            if (lista.length === 0) setPasso("revisao");
-          }}
-        >
-          <Card>
-            <div className="space-y-8">
-              <SecaoIdentificacao
-                valor={estado.identificacao}
-                onChange={(parcial) =>
-                  atualizar({
-                    identificacao: { ...estado.identificacao, ...parcial },
-                  })
-                }
-              />
-              <SecaoBlocosAlimentos
-                regras={estado.regras}
-                onChange={(regras) => atualizar({ regras })}
-                ate={estado.ate}
-                onAteChange={(ate) => atualizar({ ate })}
-                diaVencimento={estado.diaVencimento}
-                onDiaVencimentoChange={(diaVencimento) =>
-                  atualizar({ diaVencimento })
-                }
-              />
-              <section className="space-y-3" aria-labelledby="sec-data-base-alim">
+      <form
+        noValidate
+        className="space-y-6"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void gerarCalculo();
+        }}
+      >
+        <Card>
+          <div className="space-y-8">
+            <SecaoIdentificacao
+              valor={estado.identificacao}
+              onChange={(parcial) =>
+                atualizar({
+                  identificacao: { ...estado.identificacao, ...parcial },
+                })
+              }
+            />
+
+            <section className="space-y-4" aria-labelledby="sec-regra-alimentos">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <h2
-                    id="sec-data-base-alim"
+                    id="sec-regra-alimentos"
                     className="text-base font-semibold text-ink-900"
                   >
-                    3. Data-base de referência
+                    2. Regra dos alimentos
                   </h2>
-                  <Tooltip text="Data usada pelo backend como referência do cálculo (correção/juros, quando aplicados). Pode ser preenchida manualmente ou sugerida no fim do período." />
+                  <Tooltip text="O percentual é aplicado sobre o salário mínimo de cada mês do período. Se a regra mudar ao longo do tempo, inclua outra regra com o novo período." />
                 </div>
-                <Input
-                  id="alimentos-data-base"
-                  label="Data-base do cálculo"
-                  type="date"
-                  value={estado.dataBase}
-                  onChange={(e) => atualizar({ dataBase: e.target.value })}
-                  hint={
-                    sugestaoDataBase
-                      ? `Sugestão (fim de ${rotuloCompetencia(estado.ate)}): ${sugestaoDataBase}`
-                      : "Preencha ou aguarde o período final para sugestão"
-                  }
-                />
-              </section>
-              <SecaoAtualizacaoAlimentos
-                valor={estado.atualizacao}
-                onChange={(parcial) =>
-                  atualizar({
-                    atualizacao: { ...estado.atualizacao, ...parcial },
-                  })
-                }
-              />
-              <SecaoPagamentosAlimentos
-                pagamentos={estado.pagamentos}
-                onChange={(pagamentos) => atualizar({ pagamentos })}
-              />
-            </div>
-            <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-ink-100 pt-5">
-              <Button type="submit" size="lg">
-                Revisar dados
-              </Button>
-              <Button type="button" variant="ghost" onClick={reiniciar}>
-                Limpar formulário
-              </Button>
-            </div>
-          </Card>
-        </form>
-      ) : null}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => atualizar({ regras: [...estado.regras, novaRegra()] })}
+                >
+                  + Nova regra
+                </Button>
+              </div>
 
-      {passo === "revisao" ? (
-        <CartaoRevisao
-          erros={erros}
-          erroEnvio={erroEnvio}
-          enviando={enviando}
-          onVoltar={() => {
-            setPasso("formulario");
-            setErroEnvio(null);
-          }}
-          onEnviar={enviar}
-        >
-          <dl className="grid gap-3 sm:grid-cols-2">
-            <CampoResumo
-              rotulo="Título"
-              valor={estado.identificacao.titulo || "—"}
-            />
-            <CampoResumo
-              rotulo="Processo"
-              valor={estado.identificacao.processo || "—"}
-            />
-            <CampoResumo rotulo="Parte" valor={estado.identificacao.parte || "—"} />
-            <CampoResumo
-              rotulo="Período"
-              valor={
-                <span className="font-mono">
-                  {estado.regras[0]?.inicio
-                    ? rotuloCompetencia(estado.regras[0].inicio)
-                    : "—"}{" "}
-                  → {estado.ate ? rotuloCompetencia(estado.ate) : "—"}
-                </span>
-              }
-            />
-            <CampoResumo
-              rotulo="Data-base"
-              valor={
-                <span className="font-mono">
-                  {estado.dataBase || sugestaoDataBase || "—"}
-                </span>
-              }
-            />
-            <CampoResumo
-              rotulo="Dia de vencimento"
-              valor={estado.diaVencimento || "10"}
-            />
-            <CampoResumo
-              rotulo="Correção monetária"
-              valor={
-                estado.atualizacao.correcaoAplicar
-                  ? "Tabela Prática TJSP"
-                  : "Não aplicada"
-              }
-            />
-            <CampoResumo
-              rotulo="Juros"
-              valor={
-                estado.atualizacao.jurosAplicar
-                  ? estado.atualizacao.jurosModalidade === "fixa"
-                    ? `${estado.atualizacao.jurosTaxa || "—"} ao mês desde o vencimento`
-                    : "Taxa Legal (BCB)"
-                  : "Não aplicados"
-              }
-            />
-          </dl>
-          <div className="mt-4">
-            <h3 className="text-sm font-semibold text-ink-900">
-              Blocos de regras (enviados ao backend)
-            </h3>
-            <ul className="mt-2 space-y-1 text-sm text-ink-800">
-              {estado.regras.map((regra) => (
-                <li key={regra.id}>{rotuloRegra(regra)}</li>
-              ))}
-            </ul>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-sm font-semibold text-ink-900">
-              Pagamentos por competência
-            </h3>
-            {estado.pagamentos.filter((p) => p.competencia && p.valor).length ===
-            0 ? (
-              <p className="mt-1 text-sm text-ink-500">Nenhum pagamento.</p>
-            ) : (
-              <ul className="mt-2 space-y-1 text-sm text-ink-800">
-                {estado.pagamentos
-                  .filter((p) => p.competencia && p.valor)
-                  .map((p) => (
-                    <li key={p.id}>
-                      {rotuloCompetencia(p.competencia)} — {p.valor}
-                      {p.descricao ? ` (${p.descricao})` : ""}
-                    </li>
-                  ))}
+              <p className="text-sm text-ink-600">
+                Ex.: 04/2023 até 12/2025 → 85% do salário mínimo · 01/2026 em
+                diante → R$ 1.000,00.
+              </p>
+
+              <ul className="space-y-3">
+                {estado.regras.map((regra, indice) => (
+                  <BlocoRegra
+                    key={regra.id}
+                    regra={regra}
+                    indice={indice}
+                    total={estado.regras.length}
+                    onChange={(parcial) => alterarRegra(regra.id, parcial)}
+                    onRemover={() => removerRegra(regra.id)}
+                  />
+                ))}
               </ul>
-            )}
+            </section>
+
+            <section className="space-y-3" aria-labelledby="sec-pag-alimentos">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <h2
+                    id="sec-pag-alimentos"
+                    className="text-base font-semibold text-ink-900"
+                  >
+                    3. Pagamentos realizados
+                  </h2>
+                  <Tooltip text="Cada pagamento é abatido do mês informado na competência. Deixe a lista vazia quando nada foi pago ainda." />
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    atualizar({ pagamentos: [...estado.pagamentos, novoPagamento()] })
+                  }
+                >
+                  + Adicionar pagamento
+                </Button>
+              </div>
+
+              {estado.pagamentos.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-ink-300 bg-white px-3 py-4 text-sm text-ink-500">
+                  Nenhum pagamento lançado. Use “+ Adicionar pagamento” para
+                  informar o que já foi pago, mês a mês.
+                </p>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-ink-200">
+                  <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                    <thead className="bg-ink-50 text-xs uppercase tracking-wide text-ink-600">
+                      <tr>
+                        <th scope="col" className="border-b border-ink-200 px-3 py-2.5">
+                          Competência
+                        </th>
+                        <th scope="col" className="border-b border-ink-200 px-3 py-2.5">
+                          Data do pagamento
+                        </th>
+                        <th scope="col" className="border-b border-ink-200 px-3 py-2.5">
+                          Valor pago
+                        </th>
+                        <th
+                          scope="col"
+                          className="border-b border-ink-200 px-3 py-2.5 text-right"
+                        >
+                          Ações
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {estado.pagamentos.map((pagamento, indice) => (
+                        <LinhaPagamento
+                          key={pagamento.id}
+                          pagamento={pagamento}
+                          indice={indice}
+                          onChange={(parcial) => alterarPagamento(pagamento.id, parcial)}
+                          onRemover={() => removerPagamento(pagamento.id)}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <p className="text-xs text-ink-500">
+                Ex.: 01/2026 · 10/01/2026 · R$ 200,00 — repita para cada mês pago.
+              </p>
+            </section>
+
+            <section className="space-y-3" aria-labelledby="sec-atualizacao">
+              <div className="flex items-center gap-2">
+                <h2
+                  id="sec-atualizacao"
+                  className="text-base font-semibold text-ink-900"
+                >
+                  4. Data da atualização
+                </h2>
+                <Tooltip text="Data até a qual os valores são atualizados. Correção monetária e juros de 1% ao mês são aplicados até aqui, mês a mês." />
+              </div>
+              <div className="max-w-xs">
+                <Input
+                  id="alimentos-atualizar-ate"
+                  label="Atualizar até"
+                  required
+                  type="date"
+                  value={estado.atualizarAte}
+                  onChange={(e) => atualizar({ atualizarAte: e.target.value })}
+                  hint="Ex.: 30/09/2026"
+                />
+              </div>
+            </section>
           </div>
-          <p className="mt-4 text-xs text-ink-500">
-            O backend gerará uma parcela por competência, consultando o salário
-            mínimo vigente em cada uma (quando a regra for percentual).
-          </p>
-        </CartaoRevisao>
-      ) : null}
+
+          <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-ink-100 pt-5">
+            <Button type="submit" size="lg" disabled={enviando}>
+              {enviando ? "Gerando…" : "Gerar cálculo"}
+            </Button>
+            <Button type="button" variant="ghost" onClick={reiniciar}>
+              Limpar formulário
+            </Button>
+            <span className="text-xs text-ink-500">
+              Correção pela Tabela Prática TJSP e juros de 1% ao mês desde o
+              vencimento de cada mês — aplicados automaticamente.
+            </span>
+          </div>
+        </Card>
+      </form>
     </div>
   );
 }
