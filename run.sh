@@ -120,6 +120,13 @@ if ! aguardar_http "http://127.0.0.1:$FRONTEND_PORT/"; then
     exit 1
 fi
 
+# Pelo atalho do sistema, abra o aplicativo no navegador padrão assim que os
+# dois serviços estiverem disponíveis. A falha para abrir o navegador não
+# interrompe os serviços: o endereço continua acessível manualmente.
+if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "http://127.0.0.1:$FRONTEND_PORT" >/dev/null 2>&1 &
+fi
+
 echo
 echo "======================================"
 echo " Backend (API):  http://localhost:$BACKEND_PORT"
