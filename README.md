@@ -6,7 +6,7 @@ O Very Easy Calc é uma aplicação web para elaborar, revisar e exportar cálcu
 
 > Estado do projeto: MVP em desenvolvimento ativo. Antes de usar um cálculo em processo, revise os parâmetros, a cobertura das bases e o resultado com responsabilidade técnica.
 
-![Ícone do Very Easy Calc](assets/very-easy-calc-icon.png)
+![Ícone do Very Easy Calc](assets/very-easy-calc-icon.svg)
 
 ## O que já faz
 

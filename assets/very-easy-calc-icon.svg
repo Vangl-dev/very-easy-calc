@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+  <title id="title">Very Easy Calc</title>
+  <rect x="8" y="8" width="240" height="240" rx="42" fill="#6f263d"/>
+  <rect x="13" y="13" width="230" height="230" rx="37" fill="none" stroke="#f7f5f1" stroke-width="7"/>
+  <path d="M52 78 88 178 116 115" fill="none" stroke="#f7f5f1" stroke-linecap="round" stroke-linejoin="round" stroke-width="18"/>
+  <rect x="122" y="67" width="79" height="123" rx="12" fill="#f7f5f1"/>
+  <rect x="135" y="82" width="53" height="21" rx="5" fill="#6f263d"/>
+  <g fill="#cd9aa6">
+    <rect x="135" y="115" width="13" height="13" rx="3"/>
+    <rect x="155" y="115" width="13" height="13" rx="3"/>
+    <rect x="175" y="115" width="13" height="13" rx="3"/>
+    <rect x="135" y="136" width="13" height="13" rx="3"/>
+    <rect x="155" y="136" width="13" height="13" rx="3"/>
+    <rect x="175" y="136" width="13" height="13" rx="3"/>
+    <rect x="135" y="157" width="33" height="13" rx="3"/>
+    <rect x="175" y="157" width="13" height="13" rx="3"/>
+  </g>
+</svg>
