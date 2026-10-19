@@ -61,10 +61,15 @@ def _garantir_coluna_memoria() -> None:
             linha[1]
             for linha in conn.exec_driver_sql("PRAGMA table_info(calculos)").fetchall()
         }
-        if "memoria_json" in colunas:
-            return
+        if "memoria_json" not in colunas:
+            conn.exec_driver_sql('ALTER TABLE "calculos" ADD COLUMN memoria_json TEXT NOT NULL DEFAULT "{}"')
+        if "revisao_de_codigo" not in colunas:
+            conn.exec_driver_sql('ALTER TABLE "calculos" ADD COLUMN revisao_de_codigo VARCHAR(32)')
+        if "revisao_numero" not in colunas:
+            conn.exec_driver_sql('ALTER TABLE "calculos" ADD COLUMN revisao_numero INTEGER NOT NULL DEFAULT 1')
         conn.exec_driver_sql(
-            'ALTER TABLE "calculos" ADD COLUMN memoria_json TEXT NOT NULL DEFAULT "{}"'
+            'CREATE UNIQUE INDEX IF NOT EXISTS "uq_calculo_revisao" '
+            'ON "calculos" ("revisao_de_codigo", "revisao_numero")'
         )
         conn.commit()
 

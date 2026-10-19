@@ -8,7 +8,7 @@ import type {
   IndexersResponse,
 } from "../types/api";
 
-const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8000";
+const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "";
 
 export class ErroApi extends Error {
   readonly status: number;
@@ -68,6 +68,24 @@ async function postJson<T>(path: string, payload: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function deleteJson<T>(path: string): Promise<T> {
+  const response = await fetch(`${BASE}${path}`, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    let corpo: ErroApiBody = {};
+    try {
+      corpo = (await response.json()) as ErroApiBody;
+    } catch {
+      corpo = { mensagem: `Falha na API (${response.status}) em ${path}` };
+    }
+    throw new ErroApi(response.status, corpo);
+  }
+  if (response.status === 204) return undefined as T;
+  return (await response.json()) as T;
+}
+
 export const api = {
   baseUrl: BASE,
 
@@ -85,6 +103,11 @@ export const api = {
 
   obterCalculo: (codigo: string) =>
     getJson<CalculoCriado>(`/api/calculos/${encodeURIComponent(codigo)}`),
+
+  excluirCalculo: (codigo: string) =>
+    deleteJson<void>(`/api/calculos/${encodeURIComponent(codigo)}`),
+
+  limparCalculos: () => deleteJson<{ excluidos: number }>("/api/calculos"),
 };
 
 export function formatarDataHora(iso: string): string {
@@ -114,12 +137,17 @@ export function rotuloTipoCalculo(tipo: string): string {
 export function mensagemErroAmigavel(erro: unknown): string {
   if (erro instanceof ErroApi) {
     if (erro.corpo.erro === "cobertura_insuficiente" || erro.coberturaInsuficiente) {
-      const base = erro.corpo.indexador ?? "a base indexadora";
+      const base = erro.corpo.indexador ?? "A base indexadora";
       const cob = erro.corpo.cobertura;
-      const periodo = cob?.inicio && cob?.fim ? ` (cobertura ${cob.inicio} a ${cob.fim})` : "";
+      const falta = erro.corpo.competencia_solicitada
+        ? `não tem índice para ${erro.corpo.competencia_solicitada}`
+        : "ainda não cobre o período informado";
+      const disponivel =
+        cob?.inicio && cob?.fim ? `Série publicada de ${cob.inicio} a ${cob.fim}. ` : "";
       return (
-        `A base ${base} ainda não cobre o período informado${periodo}. ` +
-        "Ajuste a data final, cadastre um valor manual em Bases/Indexadores ou desative a correção monetária."
+        `${base} ${falta}. ${disponivel}` +
+        "O sistema não repete o índice do mês anterior nem inventa fator: cadastre o índice " +
+        "oficial do mês em Bases e Indexadores ou ajuste a data final."
       );
     }
     return erro.message;

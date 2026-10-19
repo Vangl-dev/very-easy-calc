@@ -32,6 +32,8 @@ class ParcelaInput:
     pagamentos: tuple[Pagamento, ...] = ()
     descricao: str = ""
     indexadores: tuple[str, ...] = ()
+    entra_no_total: bool = True
+    """Compõe o total da execução (verba não meramente referencial)."""
 
     def __post_init__(self) -> None:
         if self.numero < 1:

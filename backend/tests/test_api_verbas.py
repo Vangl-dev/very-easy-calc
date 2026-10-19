@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import db
+from app.engine.memoria import ESQUEMA_MEMORIA
 from app.main import create_app
 
 
@@ -121,7 +122,7 @@ def test_duas_verbas_com_datas_diferentes_permanecem_independentes(client: TestC
 
     # memória preserva verbas
     memoria = body["memoria"]
-    assert memoria["esquema"] == "memoria-calculo/1.3"
+    assert memoria["esquema"] == ESQUEMA_MEMORIA
     assert len(memoria["verbas"]) == 2
     assert memoria["verbas"][0]["nome"] == "Dano moral"
     assert memoria["verbas"][0]["data_base"] == "2020-05-10"

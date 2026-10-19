@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import CalculoRequest, OverrideIndexadorSchema
@@ -113,6 +113,8 @@ def create_app() -> FastAPI:
                 "parte": c.parte,
                 "app_version": c.app_version,
                 "created_at": c.created_at.isoformat(),
+                "revisao_de": c.revisao_de_codigo,
+                "revisao_numero": c.revisao_numero,
             }
             for c in linhas
         ]
@@ -121,6 +123,13 @@ def create_app() -> FastAPI:
     def criar_calculo(payload: CalculoRequest):
         with session_scope() as session:
             return executar_calculo(payload, session)
+
+    @app.delete("/api/calculos", status_code=200)
+    def limpar_calculos():
+        with session_scope() as session:
+            total = session.scalar(select(func.count()).select_from(Calculo)) or 0
+            session.execute(delete(Calculo))
+        return {"excluidos": int(total)}
 
     @app.get("/api/calculos/{codigo}")
     def obter_calculo(codigo: str, session: Session = Depends(get_session)):
@@ -131,8 +140,16 @@ def create_app() -> FastAPI:
         corpo["processo"] = registro.processo
         corpo["parte"] = registro.parte
         corpo["created_at"] = registro.created_at.isoformat()
+        corpo["revisao_de"] = registro.revisao_de_codigo
+        corpo["revisao_numero"] = registro.revisao_numero
         corpo["memoria"] = json.loads(registro.memoria_json or "{}")
         return corpo
+
+    @app.delete("/api/calculos/{codigo}", status_code=204)
+    def excluir_calculo(codigo: str):
+        with session_scope() as session:
+            registro = _carregar_calculo(codigo, session)
+            session.delete(registro)
 
     @app.get("/api/calculos/{codigo}/memoria")
     def obter_memoria(codigo: str, session: Session = Depends(get_session)):

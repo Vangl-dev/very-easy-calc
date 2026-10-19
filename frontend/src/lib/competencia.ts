@@ -44,6 +44,39 @@ export function competenciaValida(competencia: string): boolean {
 export function competenciaDeData(iso: string): string | null {
   if (!iso || iso.length < 7) return null;
   const [ano, mes] = iso.split("-");
-  if (!ano || !mes) return null;
   return `${mes}/${ano}`;
+}
+
+const MESES = [
+  "janeiro",
+  "fevereiro",
+  "março",
+  "abril",
+  "maio",
+  "junho",
+  "julho",
+  "agosto",
+  "setembro",
+  "outubro",
+  "novembro",
+  "dezembro",
+];
+
+/** "2026-10-05" ou "2026-10" → "outubro/2026" — só formatação. */
+export function rotuloCompetenciaExtenso(iso: string): string | null {
+  const br = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((iso || "").trim());
+  const data = /^(\d{4})-(\d{2})/.exec((iso || "").trim());
+  let ano: number;
+  let mes: number;
+  if (br) {
+    mes = Number(br[2]);
+    ano = Number(br[3]);
+  } else if (data) {
+    ano = Number(data[1]);
+    mes = Number(data[2]);
+  } else {
+    return null;
+  }
+  if (!mes || mes < 1 || mes > 12 || !ano) return null;
+  return `${MESES[mes - 1]}/${ano}`;
 }

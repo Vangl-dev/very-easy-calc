@@ -8,6 +8,8 @@ export interface CalculoResumo {
   parte: string;
   app_version: string;
   created_at: string;
+  revisao_de?: string | null;
+  revisao_numero?: number;
 }
 
 export interface HealthResponse {
@@ -103,6 +105,21 @@ export interface ConfigEncargoPayload {
   base?: string;
 }
 
+export interface EncargoConsolidadoPayload {
+  id: string;
+  tipo: "multa" | "honorarios" | "juros";
+  ordem: number;
+  verba_ids?: string[];
+  componentes?: Array<"principal" | "principal_corrigido" | "juros_individuais">;
+  predecessores?: string[];
+  percentual?: string | null;
+  valor_fixo?: string | null;
+  juros?: ConfigJurosPayload | null;
+  inicio?: string | null;
+  fim?: string | null;
+  entra_no_total?: boolean;
+}
+
 export interface ParcelaManualPayload {
   numero: number;
   vencimento: string;
@@ -115,17 +132,32 @@ export interface ParcelaManualPayload {
   honorarios?: ConfigEncargoPayload | null;
 }
 
+export interface RegimeAtualizacaoPayload {
+  data_inicio?: string | null;
+  data_fim?: string | null;
+  correcao?: string | null;
+  juros?: ConfigJurosPayload | null;
+  criterio?: string | null;
+}
+
 export interface VerbaPayload {
+  id?: string | null;
+  tipo?: "valor" | "percentual";
   nome: string;
-  valor: string;
+  valor?: string | null;
   data_base: string;
   descricao?: string;
+  base_verba_id?: string | null;
+  percentual?: string | null;
+  /** Se compõe o total da execução; null/ausente = padrão do backend. */
+  entra_no_total?: boolean | null;
   correcao?: ConfigCorrecaoPayload | null;
   juros?: ConfigJurosPayload | null;
   multa?: ConfigEncargoPayload | null;
   honorarios?: ConfigEncargoPayload | null;
   pagamentos?: PagamentoPayload[];
   parcelas?: ParcelaManualPayload[];
+  regimes?: RegimeAtualizacaoPayload[];
 }
 
 export interface RegraAlimentoPayload {
@@ -152,6 +184,7 @@ export interface ValorBasePayload {
 export interface CalculoCivelPayload {
   tipo: "parcelas";
   titulo: string;
+  revisao_de?: string | null;
   processo: string;
   parte: string;
   data_base: string;
@@ -162,6 +195,7 @@ export interface CalculoCivelPayload {
   multa?: ConfigEncargoPayload | null;
   honorarios?: ConfigEncargoPayload | null;
   pagamentos?: PagamentoPayload[];
+  encargos_consolidados?: EncargoConsolidadoPayload[];
 }
 
 export interface CalculoAlimentosPayload {
@@ -230,6 +264,7 @@ export interface CalculoCriado extends CalculoResumo {
   memoria?: Record<string, unknown>;
   created_at: string;
   data_base?: string;
+  payload?: CalculoRequestPayload;
 }
 
 export type CapacidadeUI =

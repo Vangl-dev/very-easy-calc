@@ -5,8 +5,10 @@ from decimal import Decimal
 import pytest
 
 from app.core.competencia import Competencia
-from app.engine.correcao import ConfigCorrecao, calcular_correcao
-from app.indexers import CoverageError, IndexerError
+from app.engine.correcao import ConfigCorrecao, SegmentoCorrecao, calcular_correcao
+from app.indexers import CoverageError, IndexerError, obter
+from app.indexers.ipca import KEY as IpcaKey
+from app.indexers.selic import KEY as SelicKey
 
 D = Decimal
 
@@ -136,3 +138,110 @@ def test_grande_quantidade_de_parcelas_e_estavel() -> None:
         total_correcao += r.correcao
         assert r.principal + r.correcao == r.valor_corrigido
     assert total_correcao > 0
+
+
+def test_fronteira_compartilhada_nao_duplica_nem_perde_fatores() -> None:
+    """Dois trechos do mesmo índice encerrando na mesma competência = um trecho só."""
+    inicial, fronteira, final = (
+        Competencia(2025, 2),
+        Competencia(2025, 4),
+        Competencia(2026, 9),
+    )
+    ipca = obter(IpcaKey)
+
+    unico = calcular_correcao(
+        "30018.44",
+        ConfigCorrecao(
+            aplicar=True,
+            indexador=IpcaKey,
+            termo_inicial=inicial,
+            termo_final=final,
+        ),
+    )
+    partido = calcular_correcao(
+        "30018.44",
+        ConfigCorrecao(
+            aplicar=True,
+            indexador=IpcaKey,
+            termo_inicial=inicial,
+            termo_final=final,
+            segmentos=(
+                SegmentoCorrecao(inicial, fronteira, IpcaKey),
+                SegmentoCorrecao(fronteira, final, IpcaKey),
+            ),
+        ),
+    )
+
+    assert unico.razao == ipca.valor(final) / ipca.valor(inicial)
+    assert partido.razao == unico.razao
+    assert partido.valor_corrigido == unico.valor_corrigido
+    assert len(partido.segmentos) == 2
+
+
+def test_segmentos_distintos_encadeados_sem_competencia_fora_do_produto() -> None:
+    """A fronteira compartilhada liga as duas séries sem buraco no meio."""
+    ipca = obter(IpcaKey)
+    selic = obter(SelicKey)
+    inicio, fronteira, fim = Competencia(2025, 2), Competencia(2025, 4), Competencia(2026, 9)
+
+    resultado = calcular_correcao(
+        "1000",
+        ConfigCorrecao(
+            aplicar=True,
+            indexador=IpcaKey,
+            termo_inicial=inicio,
+            termo_final=fim,
+            segmentos=(
+                SegmentoCorrecao(inicio, fronteira, IpcaKey),
+                SegmentoCorrecao(fronteira, fim, SelicKey),
+            ),
+        ),
+    )
+
+    esperado = (ipca.valor(fronteira) / ipca.valor(inicio)) * (
+        selic.valor(fim) / selic.valor(fronteira)
+    )
+    assert resultado.razao == esperado
+    # sem a fronteira compartilhada a razão perderia a transição fev → abr/2025
+    com_lacuna = (ipca.valor(fronteira) / ipca.valor(inicio)) * (
+        selic.valor(fim) / selic.valor(fronteira.proxima)
+    )
+    assert resultado.razao != com_lacuna
+
+
+def test_sobrepositao_real_de_segmentos_continua_sendo_rejeitada() -> None:
+    with pytest.raises(ValueError, match="sobrepõem"):
+        calcular_correcao(
+            "1000",
+            ConfigCorrecao(
+                aplicar=True,
+                indexador=IpcaKey,
+                termo_inicial=Competencia(2025, 1),
+                termo_final=Competencia(2026, 9),
+                segmentos=(
+                    SegmentoCorrecao(Competencia(2025, 1), Competencia(2025, 6), IpcaKey),
+                    SegmentoCorrecao(Competencia(2025, 3), Competencia(2026, 9), SelicKey),
+                ),
+            ),
+        )
+
+
+def test_cobertura_insuficiente_do_ipca_continua_sendo_erro_explicito() -> None:
+    with pytest.raises(CoverageError):
+        calcular_correcao(
+            "1000",
+            ConfigCorrecao(
+                indexador=IpcaKey,
+                termo_inicial=Competencia(1979, 11),
+                termo_final=Competencia(2026, 9),
+            ),
+        )
+    with pytest.raises(CoverageError):
+        calcular_correcao(
+            "1000",
+            ConfigCorrecao(
+                indexador=IpcaKey,
+                termo_inicial=Competencia(2025, 1),
+                termo_final=Competencia(2026, 10),
+            ),
+        )

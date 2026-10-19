@@ -8,21 +8,24 @@ interface HeaderProps {
 
 export function Header({ appVersion }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-40 border-b border-ink-200/80 bg-white/90 backdrop-blur">
-      <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:py-4">
-        <div className="flex items-center gap-3">
+    <header className="sticky top-0 z-40 border-b border-line bg-panel">
+      <div className="mx-auto flex max-w-page flex-col gap-3 px-4 py-4 sm:px-6 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex items-center gap-4">
           <Link
             to="/"
-            className="flex items-center gap-3 rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
+            className="flex items-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-700"
           >
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600 text-sm font-bold text-white shadow-sm">
-              VE
+            <span
+              aria-hidden="true"
+              className="flex h-9 w-9 items-center justify-center border border-edge font-serif text-lg text-brand-700"
+            >
+              §
             </span>
             <span>
-              <span className="block text-base font-semibold leading-tight text-ink-950">
+              <span className="block font-serif text-[20px] leading-tight tracking-[0.04em] text-ink-950">
                 Very Easy Calc
               </span>
-              <span className="block text-xs text-ink-500">
+              <span className="mt-0.5 block text-[12px] text-ink-500">
                 Cálculos judiciais com memória auditável
                 {appVersion ? ` · v${appVersion}` : ""}
               </span>

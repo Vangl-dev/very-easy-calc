@@ -9,12 +9,20 @@ from app.core.competencia import Competencia
 from app.core.money import percentual_txt, round_brl, to_decimal
 from app.engine.bases import BASE_CORRIGIDO, rotulo_base
 from app.indexers import obter
+from app.indexers.ipca import KEY as IpcaKey
+from app.indexers.selic import KEY as SelicKey
 from app.indexers.taxa_legal import KEY as TaxaLegalKey
 
 MODALIDADE_NAO_APLICAR = "nao_aplicar"
 MODALIDADE_TAXA_LEGAL = "taxa_legal"
 MODALIDADE_FIXA = "fixa"
-MODALIDADES = (MODALIDADE_NAO_APLICAR, MODALIDADE_TAXA_LEGAL, MODALIDADE_FIXA)
+MODALIDADE_REGIMES = "regimes"
+MODALIDADES = (
+    MODALIDADE_NAO_APLICAR,
+    MODALIDADE_TAXA_LEGAL,
+    MODALIDADE_FIXA,
+    MODALIDADE_REGIMES,
+)
 
 UNIDADE_MENSAL = "mensal"
 UNIDADE_ANUAL = "anual"
@@ -23,6 +31,9 @@ UNIDADES = (UNIDADE_MENSAL, UNIDADE_ANUAL)
 TIPO_ANUAL = "anual"
 TIPO_MENSAL = "mensal"
 TIPO_TAXA_LEGAL = "taxa_legal"
+TIPO_SELIC = "selic"
+TIPO_SELIC_MENOS_IPCA = "selic_menos_ipca"
+TIPO_SEM_JUROS = "sem_juros"
 
 
 @dataclass(frozen=True)
@@ -32,6 +43,7 @@ class RegraJuros:
     fim: date | None
     tipo: str
     taxa: Decimal | None = None
+    indexador: str | None = None
 
     def cobre(self, data: date) -> bool:
         if data < self.inicio:
@@ -178,6 +190,22 @@ def _taxa_legal_de(dia: date) -> Decimal:
     return obter(TaxaLegalKey).taxa(Competencia(dia.year, dia.month))
 
 
+def _selic_de(dia: date) -> Decimal:
+    return obter(SelicKey).taxa(Competencia(dia.year, dia.month))
+
+
+def _taxa_monetaria_de(dia: date, indexador: str | None) -> Decimal:
+    """Taxa mensal do indexador de correção (por padrão, o IPCA do IBGE)."""
+    serie = obter(indexador or IpcaKey)
+    comp = Competencia(dia.year, dia.month)
+    return serie.valor(comp) / serie.valor(comp.anterior) - 1
+
+
+def _selic_menos_ipca_de(dia: date, indexador: str | None) -> Decimal:
+    """SELIC do mês menos o IPCA do mês, com piso mensal zero."""
+    return max(Decimal(0), _selic_de(dia) - _taxa_monetaria_de(dia, indexador))
+
+
 def _intervalos_nao_cobertos(inicio: date, fim: date, trechos: list[TrechoJuros]) -> list[str]:
     pedacos = sorted((t.inicio, t.fim) for t in trechos)
     faltando: list[str] = []
@@ -259,6 +287,7 @@ def calcular_juros(
 
     trechos: list[TrechoJuros] = []
     usado_taxa_legal = False
+    usado_selic = False
     for regra in cfg.regras:
         ini = max(inicio, regra.inicio)
         fim_regra = fim if regra.fim is None else min(fim, regra.fim)
@@ -308,6 +337,60 @@ def calcular_juros(
                     valor=valor,
                 )
             )
+        elif regra.tipo == TIPO_SELIC:
+            usado_selic = True
+            indexador = obter(SelicKey)
+            valor = round_brl(_por_mes(base, ini, fim_regra, _selic_de))
+            trechos.append(
+                TrechoJuros(
+                    rotulo=regra.rotulo,
+                    inicio=ini,
+                    fim=fim_regra,
+                    dias=dias,
+                    taxa=None,
+                    taxa_rotulo=f"SELIC — SGS {indexador.metadata.version}",
+                    valor=valor,
+                )
+            )
+        elif regra.tipo == TIPO_SELIC_MENOS_IPCA:
+            usado_selic = True
+            indexador = obter(SelicKey)
+            monetario = obter(regra.indexador or IpcaKey)
+            valor = round_brl(
+                _por_mes(
+                    base,
+                    ini,
+                    fim_regra,
+                    lambda dia: _selic_menos_ipca_de(dia, regra.indexador),
+                )
+            )
+            trechos.append(
+                TrechoJuros(
+                    rotulo=regra.rotulo,
+                    inicio=ini,
+                    fim=fim_regra,
+                    dias=dias,
+                    taxa=None,
+                    taxa_rotulo=(
+                        f"SELIC − {monetario.metadata.name} (piso mensal zero)"
+                    ),
+                    valor=valor,
+                )
+            )
+        elif regra.tipo == TIPO_SEM_JUROS:
+            trechos.append(
+                TrechoJuros(
+                    rotulo=regra.rotulo,
+                    inicio=ini,
+                    fim=fim_regra,
+                    dias=dias,
+                    taxa=None,
+                    taxa_rotulo=(
+                        "SELIC integral — juros embutidos na correção monetária"
+                    ),
+                    valor=Decimal("0.00"),
+                )
+            )
         else:
             raise ValueError(f"tipo de regra de juros desconhecido: {regra.tipo!r}")
 
@@ -315,7 +398,15 @@ def calcular_juros(
         raise ValueError("nenhum período de juros corresponde às datas informadas")
 
     _validar_cobertura(inicio, fim, trechos)
-    indexador_legal = obter(TaxaLegalKey)
+    if usado_selic:
+        indexador_juros = obter(SelicKey)
+        chave_juros = SelicKey
+    elif usado_taxa_legal:
+        indexador_juros = obter(TaxaLegalKey)
+        chave_juros = TaxaLegalKey
+    else:
+        indexador_juros = None
+        chave_juros = None
     return ResultadoJuros(
         aplicado=True,
         motivo="Juros aplicados.",
@@ -324,7 +415,7 @@ def calcular_juros(
         modalidade=cfg.modalidade,
         juros=sum((t.valor for t in trechos), Decimal("0.00")),
         trechos=tuple(trechos),
-        indexador=TaxaLegalKey if usado_taxa_legal else None,
-        indexador_versao=indexador_legal.metadata.version if usado_taxa_legal else None,
-        indexador_fonte=indexador_legal.metadata.source if usado_taxa_legal else None,
+        indexador=chave_juros,
+        indexador_versao=indexador_juros.metadata.version if indexador_juros else None,
+        indexador_fonte=indexador_juros.metadata.source if indexador_juros else None,
     )

@@ -62,6 +62,7 @@ class IndexerOverride(Base):
 
 class Calculo(Base):
     __tablename__ = "calculos"
+    __table_args__ = (UniqueConstraint("revisao_de_codigo", "revisao_numero", name="uq_calculo_revisao"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     codigo: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
@@ -74,6 +75,8 @@ class Calculo(Base):
     resultado_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     bases_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     memoria_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    revisao_de_codigo: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    revisao_numero: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
     )

@@ -52,6 +52,21 @@ class ConfigEncargoSchema(BaseModel):
     base: str = "corrigido"
 
 
+class EncargoConsolidadoSchema(BaseModel):
+    id: str
+    tipo: Literal["multa", "honorarios", "juros"]
+    ordem: int = Field(ge=1)
+    verba_ids: list[str] = []
+    componentes: list[Literal["principal", "principal_corrigido", "juros_individuais"]] = []
+    predecessores: list[str] = []
+    percentual: str | None = None
+    valor_fixo: str | None = None
+    juros: ConfigJurosSchema | None = None
+    inicio: str | None = None
+    fim: str | None = None
+    entra_no_total: bool = True
+
+
 class AlimentosSchema(BaseModel):
     regras: list[RegraAlimentoSchema] = Field(min_length=1)
     ate: str
@@ -70,19 +85,48 @@ class ParcelaManualSchema(BaseModel):
     honorarios: ConfigEncargoSchema | None = None
 
 
-class VerbaSchema(BaseModel):
-    """Rubrica do cálculo Cível com datas e encargos independentes."""
+class RegimeAtualizacaoSchema(BaseModel):
+    """Período da verba com critério próprio de atualização.
 
+    - data_inicio nulo = desde o início da verba;
+    - data_fim nulo = aberto até a data final do cálculo;
+    - criterio = critério combinado (ex.: "selic"), quando aplicável.
+    """
+
+    data_inicio: str | None = None
+    data_fim: str | None = None
+    correcao: str | None = None
+    juros: ConfigJurosSchema | None = None
+    criterio: str | None = None
+
+
+class VerbaSchema(BaseModel):
+    """Rubrica do cálculo Cível.
+
+    - tipo "valor": principal = valor (comportamento histórico).
+    - tipo "percentual": principal = percentual × principal da verba-base
+      (base_verba_id). O percentual é fração (0.12 = 12%).
+    - entra_no_total: se a verba compõe o total da execução. Nulo = padrão
+      histórico (a verba usada como base por outra fica fora do total), para
+      manter compatibilidade com cálculos já salvos. Explícito sempre vale.
+    """
+
+    id: str | None = None
+    tipo: Literal["valor", "percentual"] = "valor"
     nome: str
-    valor: str
+    valor: str | None = None
     data_base: str
     descricao: str = ""
+    base_verba_id: str | None = None
+    percentual: str | None = None
+    entra_no_total: bool | None = None
     correcao: ConfigCorrecaoSchema | None = None
     juros: ConfigJurosSchema | None = None
     multa: ConfigEncargoSchema | None = None
     honorarios: ConfigEncargoSchema | None = None
     pagamentos: list[PagamentoSchema] = []
     parcelas: list[ParcelaManualSchema] = []
+    regimes: list[RegimeAtualizacaoSchema] = []
 
     @field_validator("nome")
     @classmethod
@@ -90,6 +134,14 @@ class VerbaSchema(BaseModel):
         if not str(v).strip():
             raise ValueError("nome da verba é obrigatório")
         return v.strip()
+
+    @field_validator("id", "base_verba_id", "percentual", "valor")
+    @classmethod
+    def _texto_opcional(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        texto = str(v).strip()
+        return texto or None
 
 
 class ValorBaseSchema(BaseModel):
@@ -115,6 +167,7 @@ class OverrideIndexadorSchema(BaseModel):
 class CalculoRequest(BaseModel):
     tipo: Literal["alimentos", "parcelas", "atualizacao"]
     titulo: str = ""
+    revisao_de: str | None = None
     processo: str = ""
     parte: str = ""
     data_base: str
@@ -127,6 +180,7 @@ class CalculoRequest(BaseModel):
     juros: ConfigJurosSchema | None = None
     multa: ConfigEncargoSchema | None = None
     honorarios: ConfigEncargoSchema | None = None
+    encargos_consolidados: list[EncargoConsolidadoSchema] = []
     pagamentos: list[PagamentoSchema] = []
 
     @field_validator("data_base")

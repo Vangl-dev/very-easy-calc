@@ -3,6 +3,71 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 
 from app.core.money import percentual_txt, to_decimal
+from app.engine.memoria import REGRA_TOTAL_DA_EXECUCAO
+
+__all__ = [
+    "brl_memoria",
+    "criterio_encargo_efetivo",
+    "pagamentos_efetivos",
+    "criterios_txt",
+    "dec_memoria",
+    "ids_verbas_fora_do_total",
+    "pct_memoria",
+    "regra_parcela_txt",
+    "verbas_fora_do_total",
+]
+
+
+def criterio_encargo_efetivo(config: dict | None, parcelas: list[dict], chave: str) -> dict:
+    """Completa critérios de memórias legadas a partir do resultado registrado.
+
+    Versões anteriores guardavam apenas a configuração global, embora o Cível
+    pudesse aplicar encargo por verba. Não se infere percentual: quando ele não
+    consta da memória, a saída apenas declara a cobrança por verba já refletida
+    nas parcelas. Isso preserva a matemática e evita o falso “não aplicado”.
+    """
+    criterio = dict(config or {})
+    if criterio.get("aplicar"):
+        return criterio
+    if any((parcela.get(chave) or {}).get("aplicado") for parcela in parcelas):
+        return {"aplicar": True, "por_verba": True, "variado_por_verba": True}
+    return criterio
+
+
+def pagamentos_efetivos(criterios: dict, parcelas: list[dict]) -> list[dict]:
+    """Usa a lista da memória; em versões legadas, os pagamentos das parcelas."""
+    declarados = criterios.get("pagamentos_informados") or []
+    if declarados:
+        return [dict(pagamento) for pagamento in declarados]
+    return [
+        dict(pagamento)
+        for parcela in parcelas
+        for pagamento in (parcela.get("pagamentos") or [])
+    ]
+
+
+def verbas_fora_do_total(verbas: list[dict]) -> list[dict]:
+    """Verbas que não compõem o total da execução.
+
+    Fonte única: o campo explícito ``entra_no_total``. Memórias antigas, sem o
+    campo, seguem o padrão histórico (a verba usada como base por outra fica
+    fora do total) para não alterar relatórios de cálculos já salvos.
+    """
+    referenciadas = {
+        v.get("base_verba_id") for v in verbas if v.get("base_verba_id")
+    }
+    fora: list[dict] = []
+    for verba in verbas:
+        if "entra_no_total" in verba and verba.get("entra_no_total") is not None:
+            if not verba.get("entra_no_total"):
+                fora.append(verba)
+        elif verba.get("id") in referenciadas:
+            fora.append(verba)
+    return fora
+
+
+def ids_verbas_fora_do_total(verbas: list[dict]) -> set:
+    return {v.get("id") for v in verbas_fora_do_total(verbas)}
 
 
 def dec_memoria(valor: object | None) -> Decimal | None:
@@ -39,18 +104,17 @@ def pct_memoria(valor: object | None) -> str:
     return percentual_txt(d)
 
 
-def rotulo_sim_nao(flag: object) -> str:
-    return "Sim" if flag else "Não"
-
-
 def critério_encargo_txt(config: dict | None) -> str:
     if not config or not config.get("aplicar"):
         return "não aplicado"
+    sufixo = " — configurado por verba" if config.get("por_verba") else ""
+    if config.get("variado_por_verba"):
+        return f"aplicado{sufixo}; critérios distintos por verba"
     if config.get("percentual") is not None:
-        return f"{pct_memoria(config.get('percentual'))} sobre {config.get('base', 'corrigido')}"
+        return f"{pct_memoria(config.get('percentual'))} sobre {config.get('base', 'corrigido')}{sufixo}"
     if config.get("valor_fixo") is not None:
-        return f"{brl_memoria(config.get('valor_fixo'))} ({config.get('base', 'corrigido')})"
-    return "aplicado"
+        return f"{brl_memoria(config.get('valor_fixo'))} ({config.get('base', 'corrigido')}){sufixo}"
+    return f"aplicado{sufixo}"
 
 
 def criterios_txt(criterios: dict) -> list[tuple[str, str]]:
@@ -94,6 +158,17 @@ def criterios_txt(criterios: dict) -> list[tuple[str, str]]:
                 f"{len(verbas)} rubrica(s) — correção e juros com datas próprias",
             )
         )
+        fora = verbas_fora_do_total(verbas)
+        if fora:
+            nomes = ", ".join(str(v.get("nome") or v.get("id") or "—") for v in fora)
+            linhas.append(
+                (
+                    "Total da execução",
+                    f"não compõem o total: {nomes}. {REGRA_TOTAL_DA_EXECUCAO}",
+                )
+            )
+        else:
+            linhas.append(("Total da execução", REGRA_TOTAL_DA_EXECUCAO))
     if alimentos:
         regras = alimentos.get("regras") or []
         partes = []

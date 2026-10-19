@@ -8,10 +8,12 @@ from openpyxl.utils import get_column_letter
 
 from app.export.comum import (
     bases_txt,
+    criterio_encargo_efetivo,
     critério_encargo_txt,
     criterios_txt,
     dec_memoria,
     pct_memoria,
+    pagamentos_efetivos,
     regra_parcela_txt,
 )
 
@@ -62,7 +64,17 @@ def _planilha_resumo(wb: Workbook, memoria: dict) -> None:
     ws.title = "Resumo"
     ident = memoria.get("identificacao") or {}
     resumo = memoria.get("resumo") or {}
-    criterios = memoria.get("criterios") or {}
+    criterios = dict(memoria.get("criterios") or {})
+    parcelas_da_memoria = memoria.get("parcelas") or []
+    criterios["multa"] = criterio_encargo_efetivo(
+        criterios.get("multa"), parcelas_da_memoria, "multa"
+    )
+    criterios["honorarios"] = criterio_encargo_efetivo(
+        criterios.get("honorarios"), parcelas_da_memoria, "honorarios"
+    )
+    criterios["pagamentos_informados"] = pagamentos_efetivos(
+        criterios, parcelas_da_memoria
+    )
     bases = memoria.get("bases") or []
 
     ws.append(["Very Easy Calc — memória de cálculo"])
@@ -153,6 +165,45 @@ def _planilha_resumo(wb: Workbook, memoria: dict) -> None:
         if isinstance(valor, (int, float)):
             celula.number_format = 'R$ #,##0.00'
             celula.alignment = ALINHAMENTO_DIR
+
+    pagamentos = criterios.get("pagamentos_informados") or []
+    if pagamentos:
+        ws.append([])
+        ws.append(["Abatimentos informados"])
+        ws.cell(ws.max_row, 1).font = SECAO_FONT
+        ws.append(["Data", "Valor abatido", "Competência / referência", "Descrição"])
+        _cabecalho(ws[ws.max_row])
+        for pagamento in pagamentos:
+            valor = _moeda(pagamento.get("valor"))
+            ws.append([
+                pagamento.get("data") or "",
+                -valor if valor is not None else None,
+                pagamento.get("competencia") or "",
+                pagamento.get("descricao") or "",
+            ])
+            for col in range(1, 5):
+                ws.cell(ws.max_row, col).border = BORDER
+                ws.cell(ws.max_row, col).alignment = ALINHAMENTO
+            ws.cell(ws.max_row, 2).number_format = 'R$ #,##0.00'
+            ws.cell(ws.max_row, 2).alignment = ALINHAMENTO_DIR
+
+    consolidados = memoria.get("encargos_consolidados") or []
+    if consolidados:
+        ws.append([])
+        ws.append(["Encargos consolidados"])
+        ws.cell(ws.max_row, 1).font = SECAO_FONT
+        ws.append(["Ordem", "Tipo", "Base", "Percentual / fixo", "Valor", "Inclui no total"])
+        _cabecalho(ws[ws.max_row])
+        for encargo in consolidados:
+            base = encargo.get("base") or {}
+            criterio = encargo.get("percentual") or encargo.get("valor_fixo") or "—"
+            ws.append([
+                encargo.get("ordem"), encargo.get("tipo"), _moeda(base.get("valor")),
+                criterio, _moeda(encargo.get("valor")), encargo.get("entra_no_total"),
+            ])
+            for col in range(1, 7):
+                ws.cell(ws.max_row, col).border = BORDER
+                ws.cell(ws.max_row, col).alignment = ALINHAMENTO
 
     avisos = memoria.get("avisos") or []
     if avisos:

@@ -2,9 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
-import { Input, Select } from "../../components/ui/Form";
+import { Input } from "../../components/ui/Form";
 import { Message } from "../../components/ui/Message";
-import { Tooltip } from "../../components/ui/Tooltip";
 import { CabecalhoFormulario } from "./FluxoFormulario";
 import { SecaoIdentificacao } from "./SecaoIdentificacao";
 import {
@@ -16,7 +15,6 @@ import {
   type EstadoAlimentos,
   type PagamentoAlimento,
   type RegraAlimento,
-  type TipoRegraAlimento,
 } from "./alimentos";
 import { api, mensagemErroAmigavel } from "../../lib/api";
 import { competenciaValida, rotuloCompetencia } from "../../lib/competencia";
@@ -32,8 +30,8 @@ interface BlocoRegraProps {
 function BlocoRegra({ regra, indice, total, onChange, onRemover }: BlocoRegraProps) {
   const rotulo = `Regra ${indice + 1}`;
   return (
-    <li className="space-y-3 rounded-xl border border-ink-200 bg-white p-4">
-      <div className="flex items-center justify-between gap-2">
+    <li className="rounded-xl border border-ink-200 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <span className="text-sm font-semibold text-ink-900">{rotulo}</span>
         {total > 1 ? (
           <Button
@@ -47,41 +45,17 @@ function BlocoRegra({ regra, indice, total, onChange, onRemover }: BlocoRegraPro
           </Button>
         ) : null}
       </div>
-      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-        <Select
-          id={`regra-tipo-${regra.id}`}
-          label="Como calcular"
-          value={regra.tipo}
-          onChange={(e) => onChange({ tipo: e.target.value as TipoRegraAlimento })}
-        >
-          <option value="percentual">Percentual do salário mínimo</option>
-          <option value="fixo">Valor fixo</option>
-        </Select>
-
-        {regra.tipo === "percentual" ? (
-          <Input
-            id={`regra-percentual-${regra.id}`}
-            label="Percentual do salário mínimo (%)"
-            required
-            inputMode="decimal"
-            value={regra.percentual}
-            onChange={(e) => onChange({ percentual: e.target.value })}
-            placeholder="85"
-            hint="85 = 85% do salário mínimo de cada mês"
-          />
-        ) : (
-          <Input
-            id={`regra-valor-${regra.id}`}
-            label="Valor fixo (R$)"
-            required
-            inputMode="decimal"
-            value={regra.valor}
-            onChange={(e) => onChange({ valor: e.target.value })}
-            placeholder="1000,00"
-            hint="Valor devido em cada mês"
-          />
-        )}
-
+      <div className="grid gap-3 md:grid-cols-3">
+        <Input
+          id={`regra-percentual-${regra.id}`}
+          label="Percentual do salário mínimo"
+          required
+          inputMode="decimal"
+          value={regra.percentual}
+          onChange={(e) => onChange({ percentual: e.target.value, tipo: "percentual" })}
+          placeholder="85"
+          hint="85 = 85% do salário mínimo de cada mês"
+        />
         <Input
           id={`regra-inicio-${regra.id}`}
           label="Mês/ano inicial"
@@ -91,22 +65,22 @@ function BlocoRegra({ regra, indice, total, onChange, onRemover }: BlocoRegraPro
           placeholder="04/2023"
           hint={
             regra.inicio && competenciaValida(regra.inicio)
-              ? rotuloCompetencia(regra.inicio)
-              : "Formato MM/AAAA"
+              ? `De ${rotuloCompetencia(regra.inicio)}`
+              : "De — formato MM/AAAA"
           }
         />
         <Input
           id={`regra-fim-${regra.id}`}
           label="Mês/ano final"
           value={regra.fim}
-          onChange={(e) => onChange({ fim: e.target.value })}
-          placeholder="12/2025"
+          onChange={(e) => onChange({ fim: e.target.value, tipo: "percentual" })}
+          placeholder="09/2026"
           hint={
             regra.fim
               ? competenciaValida(regra.fim)
-                ? `até ${rotuloCompetencia(regra.fim)}`
-                : "Formato MM/AAAA"
-              : "Em branco = até o fim do período"
+                ? `Até ${rotuloCompetencia(regra.fim)}`
+                : "Até — formato MM/AAAA"
+              : "Até em branco = segue até a data da atualização"
           }
         />
       </div>
@@ -158,6 +132,7 @@ function LinhaPagamento({ pagamento, indice, onChange, onRemover }: LinhaPagamen
           value={pagamento.valor}
           onChange={(e) => onChange({ valor: e.target.value })}
           placeholder="200,00"
+          hint="Valor pago na competência"
         />
       </td>
       <td className="px-3 py-2 text-right align-bottom">
@@ -236,9 +211,9 @@ export function FormAlimentos() {
     <div className="space-y-6">
       <CabecalhoFormulario
         eyebrow="Alimentos"
-        titulo="Lançamento de alimentos"
-        descricao="Informe quem deve, quanto e desde quando, quanto já foi pago e até quando atualizar. O cálculo é gerado pelo backend — aqui você só lança os dados."
-        dica="Cada mês do período vira uma linha do cálculo, com o salário mínimo daquele mês, correção monetária e juros até a data da atualização."
+        titulo="Novo cálculo de alimentos"
+        descricao="Informe a regra, os pagamentos e a data da atualização. Correção pela Tabela Prática TJSP e juros de 1% ao mês são aplicados automaticamente."
+        dica="Cada competência do período vira uma linha no resultado, com o salário mínimo daquele mês, correção e juros até a data informada."
       />
 
       {erros.length > 0 ? (
@@ -277,28 +252,32 @@ export function FormAlimentos() {
 
             <section className="space-y-4" aria-labelledby="sec-regra-alimentos">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <h2
-                    id="sec-regra-alimentos"
-                    className="text-base font-semibold text-ink-900"
-                  >
-                    2. Regra dos alimentos
-                  </h2>
-                  <Tooltip text="O percentual é aplicado sobre o salário mínimo de cada mês do período. Se a regra mudar ao longo do tempo, inclua outra regra com o novo período." />
-                </div>
+                <h2
+                  id="sec-regra-alimentos"
+                  className="text-base font-semibold text-ink-900"
+                >
+                  2. Regra da obrigação
+                </h2>
                 <Button
                   type="button"
                   variant="secondary"
                   size="sm"
-                  onClick={() => atualizar({ regras: [...estado.regras, novaRegra()] })}
+                  onClick={() =>
+                    atualizar({
+                      regras: [
+                        ...estado.regras,
+                        novaRegra({ tipo: "percentual" }),
+                      ],
+                    })
+                  }
                 >
                   + Nova regra
                 </Button>
               </div>
 
               <p className="text-sm text-ink-600">
-                Ex.: 04/2023 até 12/2025 → 85% do salário mínimo · 01/2026 em
-                diante → R$ 1.000,00.
+                Percentual do salário mínimo, período De/Até. Ex.: 85% · De
+                04/2023 · Até 09/2026.
               </p>
 
               <ul className="space-y-3">
@@ -317,15 +296,12 @@ export function FormAlimentos() {
 
             <section className="space-y-3" aria-labelledby="sec-pag-alimentos">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <h2
-                    id="sec-pag-alimentos"
-                    className="text-base font-semibold text-ink-900"
-                  >
-                    3. Pagamentos realizados
-                  </h2>
-                  <Tooltip text="Cada pagamento é abatido do mês informado na competência. Deixe a lista vazia quando nada foi pago ainda." />
-                </div>
+                <h2
+                  id="sec-pag-alimentos"
+                  className="text-base font-semibold text-ink-900"
+                >
+                  3. Pagamentos realizados
+                </h2>
                 <Button
                   type="button"
                   variant="secondary"
@@ -386,15 +362,12 @@ export function FormAlimentos() {
             </section>
 
             <section className="space-y-3" aria-labelledby="sec-atualizacao">
-              <div className="flex items-center gap-2">
-                <h2
-                  id="sec-atualizacao"
-                  className="text-base font-semibold text-ink-900"
-                >
-                  4. Data da atualização
-                </h2>
-                <Tooltip text="Data até a qual os valores são atualizados. Correção monetária e juros de 1% ao mês são aplicados até aqui, mês a mês." />
-              </div>
+              <h2
+                id="sec-atualizacao"
+                className="text-base font-semibold text-ink-900"
+              >
+                4. Atualização
+              </h2>
               <div className="max-w-xs">
                 <Input
                   id="alimentos-atualizar-ate"
@@ -403,7 +376,7 @@ export function FormAlimentos() {
                   type="date"
                   value={estado.atualizarAte}
                   onChange={(e) => atualizar({ atualizarAte: e.target.value })}
-                  hint="Ex.: 30/09/2026"
+                  hint="Ex.: 30/09/2026 — correção e juros valem até aqui"
                 />
               </div>
             </section>
@@ -411,14 +384,14 @@ export function FormAlimentos() {
 
           <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-ink-100 pt-5">
             <Button type="submit" size="lg" disabled={enviando}>
-              {enviando ? "Gerando…" : "Gerar cálculo"}
+              {enviando ? "Gerando…" : "GERAR CÁLCULO"}
             </Button>
             <Button type="button" variant="ghost" onClick={reiniciar}>
               Limpar formulário
             </Button>
             <span className="text-xs text-ink-500">
-              Correção pela Tabela Prática TJSP e juros de 1% ao mês desde o
-              vencimento de cada mês — aplicados automaticamente.
+              Tabela Prática TJSP + juros de 1% ao mês — automáticos, sem
+              configuração extra.
             </span>
           </div>
         </Card>

@@ -4,6 +4,7 @@ import {
   fracaoDePercentual,
   montarPayloadAlimentos,
   novaRegra,
+  periodoDaDivida,
   novoPagamento,
   validarAlimentos,
   type EstadoAlimentos,
@@ -178,5 +179,92 @@ describe("montarPayloadAlimentos", () => {
         descricao: "",
       },
     ]);
+  });
+});
+
+/** Reproduz a pergunta de cobertura: a competência está dentro do período da dívida? */
+function coberta(estado: EstadoAlimentos, competencia: string): boolean {
+  const { inicio, fim } = periodoDaDivida(estado);
+  const chave = (c: string) => {
+    const [mes, ano] = c.split("/");
+    return `${ano}-${mes}`;
+  };
+  if (!inicio || !fim) return false;
+  return chave(inicio) <= chave(competencia) && chave(competencia) <= chave(fim);
+}
+
+describe("período da dívida ≠ data de atualização", () => {
+  it("regra 11/2025 até 09/2026 cobre a competência 04/2026", () => {
+    const estado = cenario({
+      regras: [
+        novaRegra({
+          tipo: "percentual",
+          percentual: "35",
+          inicio: "11/2025",
+          fim: "09/2026",
+        }),
+      ],
+      atualizarAte: "2026-09-30",
+    });
+
+    expect(periodoDaDivida(estado)).toEqual({ inicio: "11/2025", fim: "09/2026" });
+    expect(coberta(estado, "04/2026")).toBe(true);
+    expect(coberta(estado, "11/2025")).toBe(true);
+    expect(coberta(estado, "09/2026")).toBe(true);
+    expect(coberta(estado, "10/2026")).toBe(false);
+
+    const payload = montarPayloadAlimentos(estado);
+    expect(payload.alimentos.ate).toBe("09/2026");
+    expect(payload.data_base).toBe("2026-09-30");
+  });
+
+  it("não usa a data de atualização como fim da obrigação", () => {
+    const estado = cenario({
+      regras: [
+        novaRegra({
+          tipo: "percentual",
+          percentual: "35",
+          inicio: "11/2025",
+          fim: "03/2026",
+        }),
+      ],
+      atualizarAte: "2026-09-30",
+    });
+
+    const payload = montarPayloadAlimentos(estado);
+    expect(payload.alimentos.ate).toBe("03/2026");
+    expect(payload.alimentos.ate).not.toBe("09/2026");
+    expect(payload.data_base).toBe("2026-09-30");
+    expect(periodoDaDivida(estado)).toEqual({ inicio: "11/2025", fim: "03/2026" });
+  });
+
+  it("mantém a data de atualização mesmo quando ela passa do fim da obrigação", () => {
+    const estado = cenario({
+      regras: [
+        novaRegra({ tipo: "percentual", percentual: "35", inicio: "11/2025", fim: "03/2026" }),
+      ],
+      atualizarAte: "2026-10-05",
+    });
+
+    const payload = montarPayloadAlimentos(estado);
+    expect(payload.alimentos.ate).toBe("03/2026");
+    expect(payload.data_base).toBe("2026-10-05");
+  });
+
+  it("regra aberta segue até a data de atualização e a regra futura é limitada por ela", () => {
+    const aberta = cenario({
+      regras: [novaRegra({ tipo: "percentual", percentual: "35", inicio: "11/2025" })],
+      atualizarAte: "2026-09-30",
+    });
+    expect(periodoDaDivida(aberta).fim).toBe("09/2026");
+
+    const futura = cenario({
+      regras: [
+        novaRegra({ tipo: "percentual", percentual: "35", inicio: "11/2025", fim: "12/2026" }),
+      ],
+      atualizarAte: "2026-09-30",
+    });
+    expect(periodoDaDivida(futura).fim).toBe("09/2026");
+    expect(montarPayloadAlimentos(futura).alimentos.ate).toBe("09/2026");
   });
 });

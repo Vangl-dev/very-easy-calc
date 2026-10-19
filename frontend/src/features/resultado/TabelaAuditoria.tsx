@@ -1,7 +1,6 @@
 import { Fragment, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Message } from "../../components/ui/Message";
-import { Tooltip } from "../../components/ui/Tooltip";
 import { formatarDataBR } from "../civel/estadoVerba";
 import type { CalculoCriado } from "../../types/api";
 
@@ -145,49 +144,58 @@ type Coluna = {
   numero?: boolean;
 };
 
-const COLUNAS_CIVEL: Coluna[] = [
+const COLUNAS_CIVEL_COMPACTO: Coluna[] = [
   { key: "verba", header: "Verba" },
   { key: "competenciaRotulo", header: "Competência" },
-  { key: "vencimento", header: "Vencimento" },
-  { key: "valorOriginal", header: "Valor original", monetario: true },
-  { key: "inicioCorrecao", header: "Início correção" },
+  { key: "valorOriginal", header: "Principal", monetario: true },
   { key: "correcao", header: "Correção", monetario: true },
-  { key: "inicioJuros", header: "Início juros" },
   { key: "juros", header: "Juros", monetario: true },
-  { key: "multa", header: "Multa", monetario: true },
-  { key: "honorarios", header: "Honorários", monetario: true },
-  { key: "pagamento", header: "Pagamento", monetario: true },
-  { key: "saldo", header: "Saldo", monetario: true },
   { key: "total", header: "Total", monetario: true },
 ];
 
-const COLUNAS_ALIMENTOS: Coluna[] = [
-  { key: "dataPagamento", header: "Data do pagamento" },
-  { key: "mes", header: "Mês" },
-  { key: "ano", header: "Ano" },
+const COLUNAS_CIVEL_DETALHE: Coluna[] = [
+  ...COLUNAS_CIVEL_COMPACTO,
   { key: "vencimento", header: "Vencimento" },
+  { key: "inicioCorrecao", header: "Início correção" },
+  { key: "inicioJuros", header: "Início juros" },
+  { key: "diasJuros", header: "Dias de juros", numero: true },
+  { key: "multa", header: "Multa", monetario: true },
+  { key: "honorarios", header: "Honorários", monetario: true },
+  { key: "pagamento", header: "Pagamento", monetario: true },
+  { key: "diferenca", header: "Diferença", monetario: true },
+  { key: "saldo", header: "Saldo", monetario: true },
   { key: "indiceInicial", header: "Índice inicial", numero: true },
+  { key: "indice", header: "Índice atual", numero: true },
+];
+
+const COLUNAS_ALIMENTOS: Coluna[] = [
+  { key: "competenciaRotulo", header: "Competência" },
+  { key: "vencimento", header: "Vencimento" },
   { key: "salarioMinimo", header: "Salário mínimo", monetario: true },
   { key: "percentual", header: "Percentual", percentual: true },
   { key: "valorOriginal", header: "Valor devido", monetario: true },
   { key: "pagamento", header: "Valor pago", monetario: true },
   { key: "diferenca", header: "Diferença", monetario: true },
-  { key: "indice", header: "Índice/fator atual", numero: true },
+  { key: "indiceInicial", header: "Índice inicial", numero: true },
+  { key: "indice", header: "Índice atual", numero: true },
   { key: "correcao", header: "Correção", monetario: true },
-  { key: "diasJuros", header: "Dias de juros", numero: true },
   { key: "juros", header: "Juros", monetario: true },
-  { key: "multa", header: "Multa", monetario: true },
+  { key: "total", header: "Total", monetario: true },
   { key: "saldo", header: "Saldo", monetario: true },
-  { key: "total", header: "Subtotal / Total", monetario: true },
 ];
 
 interface Props {
   calculo: CalculoCriado;
+  compacto?: boolean;
 }
 
-export function TabelaAuditoria({ calculo }: Props) {
+export function TabelaAuditoria({ calculo, compacto = false }: Props) {
   const ehAlimentos = calculo.tipo === "alimentos";
-  const colunas = ehAlimentos ? COLUNAS_ALIMENTOS : COLUNAS_CIVEL;
+  const colunas = ehAlimentos
+    ? COLUNAS_ALIMENTOS
+    : compacto
+      ? COLUNAS_CIVEL_COMPACTO
+      : COLUNAS_CIVEL_DETALHE;
   const linhas = useMemo(
     () => extrairLinhas(calculo, ehAlimentos),
     [calculo, ehAlimentos],
@@ -241,36 +249,26 @@ export function TabelaAuditoria({ calculo }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-base font-semibold text-ink-900">
-          Memória de cálculo — detalhamento
-        </h2>
-        <Tooltip text="Valores vêm do backend (memória de cálculo). O React não recalcula. Rolagem horizontal e cabeçalho fixo para muitas colunas." />
-      </div>
-
       {linhas.length === 0 ? (
         <Message tom="info">Nenhuma parcela na memória deste cálculo.</Message>
       ) : (
-        <div className="overflow-auto rounded-xl border border-ink-200 bg-white max-h-[70vh]">
+        <div className="overflow-x-auto border border-line bg-panel">
           <table
-            className={`${
-              ehAlimentos ? "min-w-[2100px]" : "min-w-[1400px]"
-            } border-collapse text-sm`}
+            className={`w-full border-collapse text-[13.5px] ${
+              ehAlimentos ? "min-w-[1100px]" : "min-w-[720px]"
+            }`}
           >
-            <thead className="sticky top-0 z-20 bg-ink-900 text-left text-xs uppercase tracking-wide text-white">
-              <tr>
-                {colunas.map((coluna, idx) => (
+            <thead>
+              <tr className="border-b border-line bg-paper">
+                {colunas.map((coluna) => (
                   <th
                     key={coluna.key}
                     scope="col"
                     className={[
-                      "border-b border-ink-700 px-3 py-2.5 font-semibold",
+                      "px-3 py-2.5 text-[11px] font-semibold uppercase tracking-legal text-ink-500",
                       coluna.monetario || coluna.percentual || coluna.numero
                         ? "text-right"
                         : "text-left",
-                      idx === 0
-                        ? "sticky left-0 z-30 bg-ink-900 min-w-[140px]"
-                        : "",
                     ].join(" ")}
                   >
                     {coluna.header}
@@ -281,15 +279,22 @@ export function TabelaAuditoria({ calculo }: Props) {
             <tbody>
               {grupos.map((grupo, grupoIdx) => (
                 <Fragment key={`grupo-${grupo.chave}`}>
-                  <tr className="bg-brand-50">
+                  <tr className="border-b border-line bg-brand-50/60">
                     <td
                       colSpan={colunas.length}
-                      className="sticky left-0 border-b border-brand-200 px-3 py-2 text-sm font-semibold text-brand-900"
+                      className="px-3 py-2 text-[13px] font-semibold text-brand-800"
                     >
-                      {ehAlimentos ? "Alimentos" : `Verba: ${grupo.nome}`}
-                      <span className="ml-2 text-xs font-normal text-brand-700">
+                      {ehAlimentos ? "Alimentos" : grupo.nome}
+                      <span className="ml-2 text-[12px] font-normal text-ink-600">
                         ({grupo.linhas.length}{" "}
-                        {grupo.linhas.length === 1 ? "parcela" : "parcelas"})
+                        {grupo.linhas.length === 1
+                          ? ehAlimentos
+                            ? "competência"
+                            : "parcela"
+                          : ehAlimentos
+                            ? "competências"
+                            : "parcelas"}
+                        )
                       </span>
                     </td>
                   </tr>
@@ -297,23 +302,24 @@ export function TabelaAuditoria({ calculo }: Props) {
                     <tr
                       key={`${grupo.chave}-${linha.numero}-${i}`}
                       className={[
-                        "border-b border-ink-100",
-                        grupoIdx % 2 === 0 ? "bg-white" : "bg-ink-50/40",
-                        "hover:bg-brand-50/40",
+                        "border-b border-line/80",
+                        grupoIdx % 2 === 0 ? "bg-panel" : "bg-paper/60",
                       ].join(" ")}
                     >
                       {colunas.map((coluna, colIdx) => {
                         const valor = linha[coluna.key];
+                        const numerico =
+                          coluna.monetario || coluna.percentual || coluna.numero;
                         return (
                           <td
                             key={coluna.key}
                             className={[
-                              "px-3 py-2 align-middle text-ink-800",
-                              coluna.monetario || coluna.percentual || coluna.numero
+                              "px-3 py-2.5 align-middle text-ink-800",
+                              numerico
                                 ? "text-right font-mono tabular-nums"
                                 : "text-left",
                               colIdx === 0
-                                ? "sticky left-0 z-10 bg-inherit font-medium text-ink-900 min-w-[140px] border-r border-ink-200"
+                                ? "font-medium text-ink-900"
                                 : "",
                             ].join(" ")}
                           >
@@ -326,43 +332,45 @@ export function TabelaAuditoria({ calculo }: Props) {
                 </Fragment>
               ))}
             </tbody>
-            <tfoot className="sticky bottom-0 z-20 bg-ink-100 text-sm font-semibold text-ink-900">
-              <tr>
-                <td
-                  colSpan={colunas.length}
-                  className="border-t-2 border-ink-300 px-3 py-2.5"
-                >
-                  <div className="flex flex-wrap gap-x-6 gap-y-1">
+            <tfoot>
+              <tr className="border-t-2 border-edge bg-paper">
+                <td colSpan={colunas.length} className="px-3 py-3">
+                  <div className="flex flex-wrap gap-x-8 gap-y-1 text-[13px] text-ink-700">
                     <span>
-                      Parcelas: <span className="font-mono">{resumo?.qtd_parcelas ?? linhas.length}</span>
+                      Principal{" "}
+                      <span className="font-mono font-semibold text-ink-900">
+                        {monetario(resumo?.principal)}
+                      </span>
                     </span>
                     <span>
-                      Principal:{" "}
-                      <span className="font-mono">{monetario(resumo?.principal)}</span>
+                      Correção{" "}
+                      <span className="font-mono font-semibold text-ink-900">
+                        {monetario(resumo?.correcao)}
+                      </span>
                     </span>
                     <span>
-                      Correção:{" "}
-                      <span className="font-mono">{monetario(resumo?.correcao)}</span>
+                      Juros{" "}
+                      <span className="font-mono font-semibold text-ink-900">
+                        {monetario(resumo?.juros)}
+                      </span>
                     </span>
                     <span>
-                      Juros: <span className="font-mono">{monetario(resumo?.juros)}</span>
+                      Pago{" "}
+                      <span className="font-mono font-semibold text-ink-900">
+                        {monetario(resumo?.pagamentos)}
+                      </span>
                     </span>
                     <span>
-                      Multa: <span className="font-mono">{monetario(resumo?.multa)}</span>
+                      Total{" "}
+                      <span className="font-mono font-semibold text-brand-700">
+                        {monetario(resumo?.total)}
+                      </span>
                     </span>
                     <span>
-                      Honorários:{" "}
-                      <span className="font-mono">{monetario(resumo?.honorarios)}</span>
-                    </span>
-                    <span>
-                      Pagamentos:{" "}
-                      <span className="font-mono">{monetario(resumo?.pagamentos)}</span>
-                    </span>
-                    <span>
-                      Total: <span className="font-mono text-brand-800">{monetario(resumo?.total)}</span>
-                    </span>
-                    <span>
-                      Saldo: <span className="font-mono text-brand-800">{monetario(resumo?.saldo)}</span>
+                      Saldo{" "}
+                      <span className="font-mono font-semibold text-brand-700">
+                        {monetario(resumo?.saldo)}
+                      </span>
                     </span>
                   </div>
                 </td>
@@ -372,12 +380,12 @@ export function TabelaAuditoria({ calculo }: Props) {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-3">
         <Button type="button" variant="secondary" size="sm" onClick={copiarTabela}>
           {copiado ? "Tabela copiada!" : "Copiar tabela"}
         </Button>
-        <span className="text-xs text-ink-500">
-          Totais no rodapé são os valores retornados pelo backend.
+        <span className="text-[12px] text-ink-500">
+          Valores retornados pelo backend. O React não recalcula.
         </span>
       </div>
     </div>

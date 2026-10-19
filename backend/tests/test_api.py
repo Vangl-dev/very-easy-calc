@@ -30,13 +30,19 @@ def test_indexers_listados_e_versionados(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["app_version"] == "1.0.0"
-    assert len(body["indexers"]) == 3
+    assert len(body["indexers"]) == 5
     item = next(i for i in body["indexers"] if i["key"] == "tjsp_tabela_pratica")
     assert item["version"] == "2026.09"
     assert item["registrada"] is True
     assert item["cobertura"] == {"inicio": "01/1992", "fim": "09/2026", "total": 417}
     assert item["kind"] == "correcao"
     assert item["unidade"] == "fator acumulado"
+
+    ipca = next(i for i in body["indexers"] if i["key"] == "ipca")
+    assert ipca["source"] == "IBGE"
+    assert ipca["kind"] == "correcao"
+    assert ipca["cobertura"] == {"inicio": "12/1979", "fim": "09/2026", "total": 562}
+    assert ipca["unidade"] == "número-índice"
 
 
 def test_calculos_inicialmente_vazio(client: TestClient) -> None:

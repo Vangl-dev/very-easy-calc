@@ -26,6 +26,14 @@ frontend/dist/
 !frontend/.env
 *.log
 
+# Artefatos e materiais locais (não publicar no repositório)
+.mimocode/
+output/
+/taxa legal.pdf
+/roteiro atualização monetaria.pdf
+/manual calculo processociveis.pdf
+/very-easy-calc.desktop
+
 # SO / editores
 .DS_Store
 .idea/

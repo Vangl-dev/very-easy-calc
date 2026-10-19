@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, formatarDataHora, rotuloTipoCalculo } from "../lib/api";
+import { excluirRascunho, listarRascunhos, type RascunhoCivel } from "../lib/rascunhos";
 import type { CalculoResumo, HealthResponse } from "../types/api";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -65,40 +66,104 @@ export function DashboardPage() {
   const [calculos, setCalculos] = useState<CalculoResumo[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
+  const [selecionados, setSelecionados] = useState<string[]>([]);
+  const [erroAcao, setErroAcao] = useState<string | null>(null);
+  const [rascunhos, setRascunhos] = useState<RascunhoCivel[]>([]);
+
+  async function carregar() {
+    setCarregando(true);
+    setErro(null);
+    try {
+      const [health, lista] = await Promise.all([
+        api.health(),
+        api.listarCalculos(),
+      ]);
+      setSaude(health);
+      setCalculos(lista);
+    } catch (e) {
+      setErro(
+        e instanceof Error
+          ? e.message
+          : "Não foi possível consultar a API do Very Easy Calc.",
+      );
+    } finally {
+      setCarregando(false);
+    }
+  }
 
   useEffect(() => {
-    let ativo = true;
-    async function carregar() {
-      setCarregando(true);
-      setErro(null);
-      try {
-        const [health, lista] = await Promise.all([
-          api.health(),
-          api.listarCalculos(),
-        ]);
-        if (!ativo) return;
-        setSaude(health);
-        setCalculos(lista);
-      } catch (e) {
-        if (!ativo) return;
-        setErro(
-          e instanceof Error
-            ? e.message
-            : "Não foi possível consultar a API do Very Easy Calc.",
-        );
-      } finally {
-        if (ativo) setCarregando(false);
-      }
-    }
     void carregar();
-    return () => {
-      ativo = false;
-    };
+    setRascunhos(listarRascunhos());
   }, []);
+
+  function alternarSelecao(codigo: string) {
+    setSelecionados((atual) =>
+      atual.includes(codigo)
+        ? atual.filter((item) => item !== codigo)
+        : [...atual, codigo],
+    );
+  }
+
+  function alternarTodos() {
+    setSelecionados((atual) =>
+      atual.length === recentes.length ? [] : recentes.map((c) => c.codigo),
+    );
+  }
+
+  async function excluirSelecionados() {
+    if (selecionados.length === 0) return;
+    setErroAcao(null);
+    try {
+      for (const codigo of selecionados) {
+        await api.excluirCalculo(codigo);
+      }
+      setSelecionados([]);
+      await carregar();
+    } catch (e) {
+      setErroAcao(
+        e instanceof Error ? e.message : "Não foi possível excluir os cálculos.",
+      );
+    }
+  }
+
+  async function limparTudo() {
+    const confirmado = window.confirm(
+      "Excluir todos os cálculos salvos? Esta ação não remove os rascunhos.",
+    );
+    if (!confirmado) return;
+    setErroAcao(null);
+    try {
+      await api.limparCalculos();
+      setSelecionados([]);
+      await carregar();
+    } catch (e) {
+      setErroAcao(
+        e instanceof Error ? e.message : "Não foi possível limpar os cálculos.",
+      );
+    }
+  }
+
+  function removerRascunho(id: string) {
+    excluirRascunho(id);
+    setRascunhos(listarRascunhos());
+  }
 
   const recentes = calculos.slice(0, 8);
 
   const colunas: Columna<CalculoResumo>[] = [
+    {
+      key: "selecionar",
+      header: "Selecionar",
+      render: (linha) => (
+        <input
+          type="checkbox"
+          checked={selecionados.includes(linha.codigo)}
+          onChange={() => alternarSelecao(linha.codigo)}
+          aria-label={`Selecionar cálculo ${linha.codigo}`}
+          className="h-4 w-4 accent-brand-700"
+        />
+      ),
+    },
     {
       key: "codigo",
       header: "Código",
@@ -181,7 +246,7 @@ export function DashboardPage() {
         <Message tom="danger" title="API indisponível">
           {erro}
           <p className="mt-1 text-xs">
-            Suba o backend em <code className="font-mono">localhost:8000</code> e
+            Suba o backend em <code className="font-mono">localhost:8001</code> e
             confira <code className="font-mono">VITE_API_BASE_URL</code>.
           </p>
         </Message>
@@ -300,6 +365,12 @@ export function DashboardPage() {
         </Card>
       </section>
 
+      {erroAcao ? (
+        <Message tom="danger" title="Falha na ação">
+          {erroAcao}
+        </Message>
+      ) : null}
+
       <section aria-labelledby="recentes-heading">
         <Card
           title="Cálculos recentes"
@@ -313,7 +384,37 @@ export function DashboardPage() {
           }
           padded={false}
         >
-          <div className="p-5">
+          <div className="space-y-4 p-5">
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-700">
+                <input
+                  type="checkbox"
+                  checked={recentes.length > 0 && selecionados.length === recentes.length}
+                  onChange={alternarTodos}
+                  aria-label="Selecionar todos os cálculos"
+                  className="h-4 w-4 accent-brand-700"
+                />
+                Selecionar todos
+              </label>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => void excluirSelecionados()}
+                disabled={selecionados.length === 0}
+              >
+                Excluir selecionados
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void limparTudo()}
+                disabled={calculos.length === 0}
+              >
+                Limpar tudo
+              </Button>
+            </div>
             <Table
               colunas={colunas}
               linhas={recentes}
@@ -326,6 +427,56 @@ export function DashboardPage() {
               }
             />
           </div>
+        </Card>
+      </section>
+
+      <section aria-label="Rascunhos">
+        <Card
+          title="Rascunhos"
+          description="Cálculos incompletos guardados neste navegador — não são cálculos concluídos."
+        >
+          {rascunhos.length === 0 ? (
+            <p className="text-sm text-ink-500">
+              Nenhum rascunho salvo. Use “Salvar rascunho” no formulário para
+              continuar depois.
+            </p>
+          ) : (
+            <ul className="divide-y divide-ink-100">
+              {rascunhos.map((rascunho) => (
+                <li
+                  key={rascunho.id}
+                  className="flex flex-wrap items-center justify-between gap-3 py-3"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-ink-900">
+                      {rascunho.titulo}
+                    </p>
+                    <p className="text-xs text-ink-500">
+                      Atualizado em {formatarDataHora(rascunho.atualizadoEm)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      to={`/novo-calculo?tipo=parcelas&rascunho=${encodeURIComponent(rascunho.id)}`}
+                    >
+                      <Button variant="secondary" size="sm">
+                        Continuar
+                      </Button>
+                    </Link>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removerRascunho(rascunho.id)}
+                      aria-label={`Excluir rascunho ${rascunho.titulo}`}
+                    >
+                      Excluir
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
       </section>
     </div>

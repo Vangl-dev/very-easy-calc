@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -17,6 +18,39 @@ __all__ = [
     "serializar_calculo",
     "serializar_pagamento",
 ]
+
+CRITERIO_SOMENTE_JUROS = "somente_juros"
+CRITERIO_CORRECAO_E_JUROS = "correcao_e_juros"
+
+ARREDONDAMENTO = {
+    "casas": 2,
+    "modo": "ROUND_HALF_UP",
+    "rotina": "round_brl",
+}
+
+CONVENCAO_COMPETENCIA = (
+    "Correção mensal: a data civil é reduzida à competência (ano, mês) e a "
+    "razão usa o índice do mês do termo final sobre o índice do mês do "
+    "termo inicial."
+)
+CONVENCAO_FRONTEIRA = (
+    "Segmentos consecutivos compartilham a mesma competência de referência: "
+    "a razão do segundo segmento parte do índice em que o primeiro termina, "
+    "sem lacuna e sem aplicar o fator duas vezes."
+)
+CONVENCAO_ARREDONDAMENTO = (
+    "O arredondamento é aplicado uma única vez, ao final da cadeia de "
+    "segmentos; valores intermediários por segmento não são produzidos pelo "
+    "motor."
+)
+CONVENCAO_SELIC_INTEGRAL = (
+    "No critério correção + juros a SELIC embute correção e juros: o trecho "
+    "de juros correspondente fica com valor 0,00 e não é somado em separado."
+)
+CONVENCAO_JUROS_DIAS = (
+    "Quando a taxa varia por competência (SELIC, SELIC − IPCA, Taxa Legal), o "
+    "motor aplica a taxa do mês proporcionalmente aos dias decorridos."
+)
 
 
 @dataclass(frozen=True)
@@ -79,6 +113,19 @@ def _serializar_correcao(resultado: ResultadoCorrecao) -> dict:
         "fator_final": _dec(resultado.fator_final),
         "razao": _dec(resultado.razao),
         "fator_exibicao": _dec(resultado.fator_exibicao),
+        "segmentos": [
+            {
+                "termo_inicial": _comp(s.termo_inicial),
+                "termo_final": _comp(s.termo_final),
+                "indexador": s.indexador,
+                "indexador_versao": s.indexador_versao,
+                "indexador_fonte": s.indexador_fonte,
+                "fator_inicial": _dec(s.fator_inicial),
+                "fator_final": _dec(s.fator_final),
+                "razao": _dec(s.razao),
+            }
+            for s in resultado.segmentos
+        ],
     }
 
 
@@ -108,6 +155,147 @@ def _serializar_juros(resultado: ResultadoJuros) -> dict:
     }
 
 
+def _fim_do_mes(comp: Competencia) -> str:
+    return f"{comp.year:04d}-{comp.month:02d}-{calendar.monthrange(comp.year, comp.month)[1]:02d}"
+
+
+def _criterio_em(regime: dict | None, data_iso: str) -> str | None:
+    """Critério do regime automático que cobre a data de referência do segmento."""
+    if not regime:
+        return None
+    for trecho in regime.get("trechos") or []:
+        fim = trecho.get("fim")
+        if trecho.get("inicio", "") <= data_iso and (fim is None or data_iso <= fim):
+            return trecho.get("criterio")
+    return None
+
+
+def _rotulo_do(regime: dict | None, criterio: str | None) -> str | None:
+    if not regime or not criterio:
+        return None
+    for trecho in regime.get("trechos") or []:
+        if trecho.get("criterio") == criterio:
+            return trecho.get("aplicacao")
+    return None
+
+
+def _serie_de(chave: str | None, bases: dict[str, BaseUtilizada]) -> dict:
+    base = bases.get(chave) if chave else None
+    if base is None:
+        return {"key": chave, "nome": None, "fonte": None, "versao": None}
+    return {
+        "key": base.key,
+        "nome": base.nome,
+        "fonte": base.fonte,
+        "versao": base.versao,
+    }
+
+
+def _series_de_juros(bases: dict[str, BaseUtilizada]) -> list[dict]:
+    """Séries com papel de juros, na ordem em que o motor as registrou."""
+    return [
+        _serie_de(base.key, bases)
+        for base in bases.values()
+        if "Juros" in (base.papel or "")
+    ]
+
+
+def _segmentos_temporais(
+    resultado: ResultadoParcela,
+    regime: dict | None,
+    bases: dict[str, BaseUtilizada],
+) -> dict | None:
+    """Segmenta temporalmente a parcela a partir do resultado do motor.
+
+    Não recalcula fatores nem montantes: apenas reorganiza os segmentos de
+    correção e os trechos de juros que o motor já produziu, acrescentando o
+    critério do regime automático quando existe.
+    """
+    correcao = resultado.correcao
+    juros = resultado.juros
+    resolvido = bool(regime and regime.get("aplicada"))
+    if not correcao.segmentos and not resolvido:
+        return None
+
+    itens: list[dict] = []
+    for s in correcao.segmentos:
+        criterio = _criterio_em(regime, _fim_do_mes(s.termo_final))
+        itens.append(
+            {
+                "tipo": "correcao",
+                "criterio": criterio,
+                "criterio_rotulo": _rotulo_do(regime, criterio),
+                "periodo": {
+                    "termo_inicial": s.termo_inicial.key,
+                    "termo_final": s.termo_final.key,
+                    "data_inicio": f"{s.termo_inicial.key}-01",
+                    "data_fim": _fim_do_mes(s.termo_final),
+                    "unidade": "competencia",
+                },
+                "indexador": s.indexador,
+                "serie": _serie_de(s.indexador, bases),
+                "fator_inicial": _dec(s.fator_inicial),
+                "fator_final": _dec(s.fator_final),
+                "fator_acumulado": _dec(s.razao),
+                "arredondamento": ARREDONDAMENTO,
+                "valor_base": None,
+                "valor_resultante": None,
+                "juros_incorporados": criterio == CRITERIO_CORRECAO_E_JUROS,
+            }
+        )
+    if itens:
+        # a cadeia parte do principal e termina no valor corrigido; o motor
+        # arredonda uma única vez, então não há montante por segmento
+        itens[0]["valor_base"] = str(round_brl(correcao.principal))
+        itens[-1]["valor_resultante"] = str(round_brl(correcao.valor_corrigido))
+
+    for trecho in juros.trechos:
+        criterio = _criterio_em(regime, trecho.fim.isoformat())
+        itens.append(
+            {
+                "tipo": "juros",
+                "criterio": criterio,
+                "criterio_rotulo": _rotulo_do(regime, criterio),
+                "periodo": {
+                    "data_inicio": trecho.inicio.isoformat(),
+                    "data_fim": trecho.fim.isoformat(),
+                    "unidade": "data",
+                },
+                "dias": trecho.dias,
+                "proporcional_aos_dias": trecho.taxa is None and trecho.valor != 0,
+                "taxa": _dec(trecho.taxa),
+                "taxa_rotulo": trecho.taxa_rotulo,
+                "piso_mensal_zero": "piso mensal zero" in (trecho.taxa_rotulo or ""),
+                "indexador": juros.indexador,
+                "serie": (
+                    _serie_de(juros.indexador, bases) if juros.indexador else None
+                ),
+                "series_envolvidas": (
+                    _series_de_juros(bases)
+                    if criterio == CRITERIO_SOMENTE_JUROS
+                    else None
+                ),
+                "arredondamento": ARREDONDAMENTO,
+                "valor_base": str(round_brl(juros.base)),
+                "valor_resultante": str(round_brl(trecho.valor)),
+                "juros_incorporados": criterio == CRITERIO_CORRECAO_E_JUROS,
+            }
+        )
+
+    return {
+        "origem": "regime_automatico" if resolvido else "segmentacao_da_verba",
+        "convencao": {
+            "competencia": CONVENCAO_COMPETENCIA,
+            "fronteira_compartilhada": CONVENCAO_FRONTEIRA,
+            "arredondamento": CONVENCAO_ARREDONDAMENTO,
+            "selic_integral": CONVENCAO_SELIC_INTEGRAL,
+            "juros_proporcionais_aos_dias": CONVENCAO_JUROS_DIAS,
+        },
+        "motivo": regime.get("motivo") if regime else None,
+        "segmentos": itens,
+    }
+
+
 def _serializar_encargo(resultado: ResultadoEncargo) -> dict:
     return {
         "aplicado": resultado.aplicado,
@@ -123,6 +311,7 @@ def _serializar_encargo(resultado: ResultadoEncargo) -> dict:
 def _serializar_parcela(
     resultado: ResultadoParcela,
     rastro: object | None,
+    bases: dict[str, BaseUtilizada],
 ) -> dict:
     dados = {
         "numero": resultado.numero,
@@ -176,6 +365,13 @@ def _serializar_parcela(
             dados["inicio_juros"] = rastro["inicio_juros"]
         if rastro.get("detalhe") and not dados["descricao"]:
             dados["descricao"] = rastro["detalhe"]
+
+    regime = rastro.get("regime_temporal") if isinstance(rastro, dict) else None
+    if regime is not None:
+        dados["regime_temporal"] = regime
+    temporais = _segmentos_temporais(resultado, regime, bases)
+    if temporais is not None:
+        dados["segmentos_temporais"] = temporais
     return dados
 
 
@@ -201,6 +397,7 @@ def serializar_calculo(
     verbas: list[dict] | None = None,
 ) -> dict:
     mapa = rastros or {}
+    bases_por_key = {b.key: b for b in resultado.bases}
     resumo = resultado.resumo
     return {
         "tipo": tipo,
@@ -221,9 +418,11 @@ def serializar_calculo(
             "adicional": str(round_brl(resumo.adicional)),
         },
         "parcelas": [
-            _serializar_parcela(p, mapa.get(p.numero)) for p in resultado.parcelas
+            _serializar_parcela(p, mapa.get(p.numero), bases_por_key)
+            for p in resultado.parcelas
         ],
         "verbas": [dict(v) for v in (verbas or [])],
+        "encargos_consolidados": [],
         "bases": [_serializar_base(b) for b in resultado.bases],
         "avisos": list(resultado.avisos),
         "payload": payload or {},

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -10,15 +11,17 @@ from app.api.schemas import (
     CalculoRequest,
     ConfigCorrecaoSchema,
     ConfigEncargoSchema,
+    EncargoConsolidadoSchema,
     ConfigJurosSchema,
     PagamentoSchema,
+    RegimeAtualizacaoSchema,
     RegraAlimentoSchema,
     VerbaSchema,
 )
 from app.api.serializacao import RastroParcela, serializar_calculo
 from app.core.competencia import Competencia
 from app.core.config import get_settings
-from app.core.money import to_decimal
+from app.core.money import percentual_txt, round_brl, to_decimal
 from app.engine.alimentos import (
     TIPO_FIXO,
     TIPO_SALARIO_MINIMO,
@@ -28,11 +31,25 @@ from app.engine.alimentos import (
 )
 from app.engine.calculo import calcular
 from app.engine.configuracao import ConfiguracaoCalculo
-from app.engine.correcao import ConfigCorrecao
+from app.engine.correcao import ConfigCorrecao, SegmentoCorrecao
 from app.engine.encargos import ConfigEncargo, Pagamento
-from app.engine.juros import ConfigJuros
+from app.engine.encargos_consolidados import EncargoConsolidado, calcular_encargos_consolidados
+from app.engine.juros import (
+    MODALIDADE_FIXA,
+    MODALIDADE_REGIMES,
+    MODALIDADE_TAXA_LEGAL,
+    TIPO_ANUAL,
+    TIPO_MENSAL,
+    TIPO_SELIC,
+    TIPO_TAXA_LEGAL,
+    UNIDADE_ANUAL,
+    ConfigJuros,
+    RegraJuros,
+)
 from app.engine.memoria import montar_memoria
 from app.engine.parcela import ParcelaInput
+from app.engine.regime_temporal import ResolucaoRegime, resolver_regime_temporal
+from app.engine.verbas import resolver_verbas
 from app.indexers import obter
 from app.indexers.overrides import (
     carregar_overrides_da_sessao,
@@ -41,6 +58,7 @@ from app.indexers.overrides import (
     overrides_utilizados,
 )
 from app.indexers.salario_minimo import KEY as SalarioKey
+from app.indexers.selic import KEY as SelicKey
 from app.models.entities import Calculo
 
 __all__ = ["gerar_codigo_calculo", "serializar_para_persistencia", "executar_calculo"]
@@ -139,25 +157,320 @@ def _montar_config_juros_de_verba(
     return ConfigJuros(**kwargs)
 
 
+def _correcao_do_regime(regime: RegimeAtualizacaoSchema) -> str | None:
+    """Critério combinado tem prioridade sobre o campo isolado."""
+    return regime.criterio or regime.correcao
+
+
+def _juros_do_regime(regime: RegimeAtualizacaoSchema) -> ConfigJurosSchema | None:
+    if regime.criterio:
+        return ConfigJurosSchema(aplicar=True, modalidade=regime.criterio, base="corrigido")
+    if regime.juros is not None and regime.juros.aplicar:
+        return regime.juros
+    return None
+
+
+def _segmentos_de_regimes(
+    regimes: list[RegimeAtualizacaoSchema],
+    *,
+    termo_inicial_padrao: Competencia | None,
+    data_final: str,
+) -> list[SegmentoCorrecao]:
+    """Converte os períodos dos regimes em segmentos de correção.
+
+    A correção é mensal e cada segmento é uma razão entre índices do próprio
+    mês: o regime encerra exatamente no ponto de referência em que o próximo
+    começa, para que a transição entre as duas séries não se perda no produto.
+    """
+    fim_total = Competencia.parse(data_final)
+    brutos: list[list] = []
+    for indice, regime in enumerate(regimes):
+        chave = _correcao_do_regime(regime)
+        if not chave:
+            continue
+        fim = Competencia.parse(regime.data_fim) if regime.data_fim else fim_total
+        if regime.data_inicio:
+            inicio = Competencia.parse(regime.data_inicio)
+        elif indice == 0:
+            inicio = termo_inicial_padrao
+        else:
+            raise ValueError(
+                "regime de atualização a partir do segundo deve informar data_inicio"
+            )
+        if inicio is None:
+            raise ValueError(
+                "regime de atualização sem data inicial e a verba não tem data de correção"
+            )
+        if fim < inicio:
+            raise ValueError(
+                f"regime de atualização de {chave} termina ({fim.label}) antes de "
+                f"começar ({inicio.label})"
+            )
+        brutos.append([inicio, fim, chave])
+
+    for indice in range(len(brutos) - 1):
+        proximo = brutos[indice + 1][0]
+        if proximo <= brutos[indice][0]:
+            raise ValueError(
+                f"regimes de atualização se sobrepõem em {proximo.label}"
+            )
+        brutos[indice][1] = proximo
+
+    return [
+        SegmentoCorrecao(
+            termo_inicial=inicio, termo_final=fim, indexador=chave
+        )
+        for inicio, fim, chave in brutos
+    ]
+
+
+def _regras_de_regimes(
+    regimes: list[RegimeAtualizacaoSchema],
+    *,
+    data_final: str,
+) -> list[RegraJuros]:
+    fim_total = date.fromisoformat(data_final)
+    regras: list[RegraJuros] = []
+    for indice, regime in enumerate(regimes):
+        if regime.data_inicio:
+            inicio = date.fromisoformat(regime.data_inicio)
+        elif indice == 0:
+            inicio = date(1900, 1, 1)
+        else:
+            raise ValueError(
+                "regime de atualização a partir do segundo deve informar data_inicio"
+            )
+        fim = date.fromisoformat(regime.data_fim) if regime.data_fim else fim_total
+        if fim < inicio:
+            raise ValueError(
+                f"regime de atualização termina ({fim.isoformat()}) antes de começar "
+                f"({inicio.isoformat()})"
+            )
+
+        juros = _juros_do_regime(regime)
+        if juros is None:
+            regras.append(
+                RegraJuros(
+                    rotulo="Sem juros neste período",
+                    inicio=inicio,
+                    fim=fim,
+                    tipo=TIPO_MENSAL,
+                    taxa=Decimal(0),
+                )
+            )
+            continue
+
+        modalidade = juros.modalidade
+        if modalidade == MODALIDADE_FIXA:
+            taxa = to_decimal(juros.taxa) if juros.taxa is not None else Decimal(0)
+            anual = juros.unidade == UNIDADE_ANUAL
+            regras.append(
+                RegraJuros(
+                    rotulo=(
+                        f"{percentual_txt(taxa)} a.a."
+                        if anual
+                        else f"{percentual_txt(taxa)} ao mês"
+                    ),
+                    inicio=inicio,
+                    fim=fim,
+                    tipo=TIPO_ANUAL if anual else TIPO_MENSAL,
+                    taxa=taxa,
+                )
+            )
+        elif modalidade == MODALIDADE_TAXA_LEGAL:
+            regras.append(
+                RegraJuros(
+                    rotulo="Taxa Legal, art. 406 do CC",
+                    inicio=inicio,
+                    fim=fim,
+                    tipo=TIPO_TAXA_LEGAL,
+                )
+            )
+        elif modalidade == SelicKey:
+            regras.append(
+                RegraJuros(
+                    rotulo="SELIC",
+                    inicio=inicio,
+                    fim=fim,
+                    tipo=TIPO_SELIC,
+                )
+            )
+        else:
+            raise ValueError(
+                f"modalidade de juros não suportada em regime de atualização: "
+                f"{modalidade!r}"
+            )
+    return regras
+
+
+def _aplicar_regimes_de_verba(
+    verba: VerbaSchema,
+    correcao: ConfigCorrecao,
+    juros: ConfigJuros,
+    *,
+    data_final: str,
+) -> tuple[ConfigCorrecao, ConfigJuros]:
+    """Troca os critérios da verba pelos dos regimes, se houver."""
+    regimes = verba.regimes
+    if not regimes:
+        return correcao, juros
+
+    nova_correcao = correcao
+    if correcao.aplicar:
+        segmentos = _segmentos_de_regimes(
+            regimes,
+            termo_inicial_padrao=correcao.termo_inicial,
+            data_final=data_final,
+        )
+        nova_correcao = (
+            ConfigCorrecao(aplicar=False)
+            if not segmentos
+            else ConfigCorrecao(
+                aplicar=True,
+                indexador=correcao.indexador,
+                termo_inicial=segmentos[0].termo_inicial,
+                termo_final=segmentos[-1].termo_final,
+                segmentos=tuple(segmentos),
+            )
+        )
+
+    nova_juros = juros
+    if juros.aplicar:
+        regras = _regras_de_regimes(regimes, data_final=data_final)
+        nova_juros = (
+            ConfigJuros(aplicar=False)
+            if not any(_juros_do_regime(r) for r in regimes)
+            else ConfigJuros(
+                aplicar=True,
+                modalidade=MODALIDADE_REGIMES,
+                unidade=juros.unidade,
+                base=juros.base,
+                inicio=juros.inicio,
+                fim=juros.fim,
+                regras=tuple(regras),
+            )
+        )
+    return nova_correcao, nova_juros
+
+
+def _regimes_para_memoria(regimes: list[RegimeAtualizacaoSchema]) -> list[dict]:
+    return [
+        {
+            "data_inicio": r.data_inicio,
+            "data_fim": r.data_fim,
+            "correcao": _correcao_do_regime(r),
+            "criterio": r.criterio,
+            "juros": None
+            if _juros_do_regime(r) is None
+            else {
+                "modalidade": _juros_do_regime(r).modalidade,
+                "taxa": _juros_do_regime(r).taxa,
+            },
+        }
+        for r in regimes
+    ]
+
+
+def _para_data_iso(valor: object) -> date | None:
+    if valor is None:
+        return None
+    try:
+        return date.fromisoformat(str(valor).strip())
+    except ValueError:
+        return None
+
+
+def _regime_para_memoria(resolucao: ResolucaoRegime | None) -> dict | None:
+    """Serializa a resolução automática do regime sem recalcular nada.
+
+    Os trechos carregam o critério que o motor escolheu (somente correção,
+    somente juros ou correção + juros) e o texto da aplicação.
+    """
+    if resolucao is None or not resolucao.aplicada:
+        return None
+    return {
+        "aplicada": bool(resolucao.aplicada),
+        "motivo": resolucao.motivo,
+        "trechos": [
+            {
+                "criterio": t.criterio,
+                "inicio": t.inicio.isoformat(),
+                "fim": t.fim.isoformat(),
+                "aplicacao": t.aplicacao,
+            }
+            for t in resolucao.trechos
+        ],
+    }
+
+
+def _aplicar_regime_temporal_de_verba(
+    verba: VerbaSchema,
+    correcao: ConfigCorrecao,
+    juros: ConfigJuros,
+    *,
+    data_base_verba: str,
+    data_final: str,
+) -> tuple[ConfigCorrecao, ConfigJuros, ResolucaoRegime | None]:
+    """Aplica o regime pós-28/08/2024 quando correção e juros têm datas próprias."""
+    termino = _para_data_iso(data_final)
+    if termino is None:
+        return correcao, juros, None
+    inicio_correcao: date | None = None
+    if verba.correcao is not None:
+        inicio_correcao = _para_data_iso(
+            verba.correcao.termo_inicial or data_base_verba
+        )
+    resolucao = resolver_regime_temporal(
+        correcao,
+        juros,
+        data_final=termino,
+        inicio_correcao=inicio_correcao,
+    )
+    return resolucao.correcao, resolucao.juros, resolucao
+
+
 def _entradas_de_verbas(
     payload: CalculoRequest,
-) -> tuple[list[ParcelaInput], dict[int, dict]]:
-    """Expande verbas em ParcelaInput com configs independentes por rubrica."""
+) -> tuple[list[ParcelaInput], dict[int, dict], list[dict]]:
+    """Expande verbas em ParcelaInput com configs independentes por rubrica.
+
+    Verbas do tipo percentual são resolvidas antes da expansão:
+    principal = percentual × principal da verba-base (sem herdar datas
+    de correção/juros da base).
+    """
     if not payload.verbas:
         raise ValueError("tipo 'parcelas' com verbas exige ao menos uma verba em 'verbas'")
 
+    resolvidas = resolver_verbas(payload.verbas)
     entradas: list[ParcelaInput] = []
     rastros: dict[int, dict] = {}
+    memoria_verbas: list[dict] = []
     numero = 0
 
-    for indice, verba in enumerate(payload.verbas, start=1):
-        vencimento = date.fromisoformat(verba.data_base)
+    for resolvida in resolvidas:
+        verba = payload.verbas[resolvida.indice - 1]
+        principal = resolvida.principal
+        principal_txt = str(principal)
+        vencimento = date.fromisoformat(resolvida.data_base)
         correcao = _montar_config_correcao_de_verba(
-            verba.correcao, data_base_verba=verba.data_base
+            verba.correcao, data_base_verba=resolvida.data_base
         )
         juros = _montar_config_juros_de_verba(
-            verba.juros, data_base_verba=verba.data_base
+            verba.juros, data_base_verba=resolvida.data_base
         )
+        correcao, juros = _aplicar_regimes_de_verba(
+            verba, correcao, juros, data_final=payload.data_base
+        )
+        regime_resolvido: ResolucaoRegime | None = None
+        if not verba.regimes:
+            correcao, juros, regime_resolvido = _aplicar_regime_temporal_de_verba(
+                verba,
+                correcao,
+                juros,
+                data_base_verba=resolvida.data_base,
+                data_final=payload.data_base,
+            )
+        regime_memoria = _regime_para_memoria(regime_resolvido)
         multa = _montar_config_encargo(verba.multa)
         honorarios = _montar_config_encargo(verba.honorarios)
         pagamentos = _montar_pagamentos(verba.pagamentos)
@@ -180,59 +493,108 @@ def _entradas_de_verbas(
                     numero=numero,
                     vencimento=venc_parc,
                     principal=parcela_verba.principal,
-                    descricao=parcela_verba.descricao or verba.descricao or verba.nome,
+                    descricao=parcela_verba.descricao or resolvida.descricao or resolvida.nome,
                     pagamentos=_montar_pagamentos(parcela_verba.pagamentos) or pagamentos,
                     correcao=correcao_p,
                     juros=juros_p,
                     multa=multa,
                     honorarios=honorarios,
+                    entra_no_total=resolvida.entra_no_total,
                 )
                 entradas.append(entrada)
                 rastros[numero] = {
-                    "verba_id": f"verba-{indice}",
-                    "verba_nome": verba.nome,
-                    "verba_valor": verba.valor,
-                    "verba_data_base": verba.data_base,
+                    "verba_id": resolvida.id,
+                    "verba_nome": resolvida.nome,
+                    "verba_valor": principal_txt,
+                    "verba_data_base": resolvida.data_base,
+                    "verba_tipo": resolvida.tipo,
                     "inicio_correcao": (
                         correcao_p.termo_inicial.key if correcao_p.termo_inicial else None
                     ),
                     "inicio_juros": (
                         juros_p.inicio.isoformat() if juros_p.inicio else None
                     ),
+                    "regime_temporal": regime_memoria,
                 }
         else:
             numero += 1
             entrada = ParcelaInput(
                 numero=numero,
                 vencimento=vencimento,
-                principal=verba.valor,
-                descricao=verba.descricao or verba.nome,
+                principal=principal,
+                descricao=resolvida.descricao or resolvida.nome,
                 pagamentos=pagamentos,
                 correcao=correcao,
                 juros=juros,
                 multa=multa,
                 honorarios=honorarios,
+                entra_no_total=resolvida.entra_no_total,
             )
             entradas.append(entrada)
             rastros[numero] = {
-                "verba_id": f"verba-{indice}",
-                "verba_nome": verba.nome,
-                "verba_valor": verba.valor,
-                "verba_data_base": verba.data_base,
+                "verba_id": resolvida.id,
+                "verba_nome": resolvida.nome,
+                "verba_valor": principal_txt,
+                "verba_data_base": resolvida.data_base,
+                "verba_tipo": resolvida.tipo,
                 "inicio_correcao": (
                     correcao.termo_inicial.key if correcao.termo_inicial else None
                 ),
                 "inicio_juros": juros.inicio.isoformat() if juros.inicio else None,
+                "regime_temporal": regime_memoria,
             }
 
-    return entradas, rastros
+        inicio_correcao = next(
+            (
+                item["inicio_correcao"]
+                for item in rastros.values()
+                if item.get("verba_id") == resolvida.id and item.get("inicio_correcao")
+            ),
+            None,
+        )
+        inicio_juros = next(
+            (
+                item["inicio_juros"]
+                for item in rastros.values()
+                if item.get("verba_id") == resolvida.id and item.get("inicio_juros")
+            ),
+            None,
+        )
+        memoria_verbas.append(
+            {
+                "id": resolvida.id,
+                "nome": resolvida.nome,
+                "descricao": resolvida.descricao,
+                "tipo": resolvida.tipo,
+                "valor": principal_txt,
+                "valor_entrada": resolvida.valor_entrada,
+                "base_verba_id": resolvida.base_verba_id,
+                "percentual": (
+                    str(resolvida.percentual) if resolvida.percentual is not None else None
+                ),
+                "entra_no_total": resolvida.entra_no_total,
+                "data_base": resolvida.data_base,
+                "inicio_correcao": inicio_correcao,
+                "inicio_juros": inicio_juros,
+                "regimes": _regimes_para_memoria(verba.regimes),
+                "regime_temporal": regime_memoria,
+                # No modo Cível, estes encargos podem ser definidos por verba.
+                # A memória precisa conservar o critério de origem para que os
+                # relatórios não confundam uma configuração global vazia com
+                # uma cobrança efetivamente aplicada.
+                "multa": verba.multa.model_dump() if verba.multa else None,
+                "honorarios": verba.honorarios.model_dump() if verba.honorarios else None,
+            }
+        )
+
+    return entradas, rastros, memoria_verbas
 
 
 def _entradas_manuais(
     payload: CalculoRequest,
 ) -> list[ParcelaInput]:
     if payload.verbas:
-        entradas, _ = _entradas_de_verbas(payload)
+        entradas, _, _ = _entradas_de_verbas(payload)
         return entradas
     if not payload.parcelas:
         raise ValueError("tipo 'parcelas' exige verbas ou ao menos uma parcela")
@@ -266,6 +628,55 @@ def _montar_config_encargo(schema: ConfigEncargoSchema | None) -> ConfigEncargo:
     if schema.valor_fixo is not None:
         kwargs["valor_fixo"] = to_decimal(schema.valor_fixo)
     return ConfigEncargo(**kwargs)
+
+
+def _montar_encargos_consolidados(
+    schemas: list[EncargoConsolidadoSchema],
+) -> list[EncargoConsolidado]:
+    itens: list[EncargoConsolidado] = []
+    for schema in schemas:
+        if bool(schema.percentual) == bool(schema.valor_fixo):
+            raise ValueError(
+                f"encargo consolidado '{schema.id}' exige percentual ou valor fixo, não ambos"
+            )
+        percentual = to_decimal(schema.percentual) if schema.percentual is not None else None
+        valor_fixo = to_decimal(schema.valor_fixo) if schema.valor_fixo is not None else None
+        if percentual is not None and percentual < 0:
+            raise ValueError("percentual de encargo consolidado não pode ser negativo")
+        if valor_fixo is not None and valor_fixo < 0:
+            raise ValueError("valor fixo de encargo consolidado não pode ser negativo")
+        juros = _montar_config_juros(schema.juros) if schema.juros else None
+        itens.append(EncargoConsolidado(
+            id=schema.id.strip(), tipo=schema.tipo, ordem=schema.ordem,
+            verba_ids=tuple(schema.verba_ids), componentes=tuple(schema.componentes),
+            predecessores=tuple(schema.predecessores), percentual=percentual,
+            valor_fixo=valor_fixo, juros=juros,
+            inicio=date.fromisoformat(schema.inicio) if schema.inicio else None,
+            fim=date.fromisoformat(schema.fim) if schema.fim else None,
+            entra_no_total=schema.entra_no_total,
+        ))
+    return itens
+
+
+def _aplicar_encargos_consolidados(corpo: dict, schemas: list[EncargoConsolidadoSchema]) -> list[dict]:
+    if not schemas:
+        return []
+    encargos = calcular_encargos_consolidados(_montar_encargos_consolidados(schemas), corpo["parcelas"])
+    resumo = corpo["resumo"]
+    por_tipo = {"multa": Decimal("0.00"), "honorarios": Decimal("0.00"), "juros": Decimal("0.00")}
+    total_adicional = Decimal("0.00")
+    for encargo in encargos:
+        valor = to_decimal(encargo["valor"])
+        if encargo["entra_no_total"]:
+            por_tipo[encargo["tipo"]] += valor
+            total_adicional += valor
+    for tipo, chave in (("multa", "multa"), ("honorarios", "honorarios"), ("juros", "juros")):
+        resumo[chave] = str(round_brl(to_decimal(resumo[chave]) + por_tipo[tipo]))
+    resumo["total"] = str(round_brl(to_decimal(resumo["total"]) + total_adicional))
+    resumo["saldo"] = str(round_brl(to_decimal(resumo["saldo"]) + total_adicional))
+    resumo["adicional"] = str(round_brl(to_decimal(resumo["adicional"]) + total_adicional))
+    corpo["encargos_consolidados"] = encargos
+    return encargos
 
 
 def _montar_regra(schema: RegraAlimentoSchema) -> RegraAlimento:
@@ -524,46 +935,6 @@ def _montar_bloco_atualizacao(corpo: dict, contexto: dict) -> dict:
     }
 
 
-def _montar_verbas_para_memoria(
-    payload: CalculoRequest,
-    rastros: dict[int, dict],
-) -> list[dict]:
-    verbas: list[dict] = []
-    for indice, verba in enumerate(payload.verbas or [], start=1):
-        verba_id = f"verba-{indice}"
-        parcelas_da_verba = [
-            {
-                "numero": numero,
-                "verba_id": item.get("verba_id"),
-                "inicio_correcao": item.get("inicio_correcao"),
-                "inicio_juros": item.get("inicio_juros"),
-            }
-            for numero, item in rastros.items()
-            if item.get("verba_id") == verba_id
-        ]
-        inicio_correcao = next(
-            (p["inicio_correcao"] for p in parcelas_da_verba if p["inicio_correcao"]),
-            None,
-        )
-        inicio_juros = next(
-            (p["inicio_juros"] for p in parcelas_da_verba if p["inicio_juros"]),
-            None,
-        )
-        verbas.append(
-            {
-                "id": verba_id,
-                "nome": verba.nome,
-                "descricao": verba.descricao,
-                "valor": verba.valor,
-                "data_base": verba.data_base,
-                "inicio_correcao": inicio_correcao,
-                "inicio_juros": inicio_juros,
-                "parcelas": parcelas_da_verba,
-            }
-        )
-    return verbas
-
-
 def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
     settings = get_settings()
     verbas_memoria: list[dict] = []
@@ -584,8 +955,18 @@ def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
         if payload.tipo == "alimentos":
             entradas, rastros = _entradas_de_alimentos(payload)
         elif payload.verbas:
-            entradas, rastros = _entradas_de_verbas(payload)
-            verbas_memoria = _montar_verbas_para_memoria(payload, rastros)
+            entradas, rastros, verbas_memoria = _entradas_de_verbas(payload)
+            for item in verbas_memoria:
+                item["parcelas"] = [
+                    {
+                        "numero": numero,
+                        "verba_id": rastro.get("verba_id"),
+                        "inicio_correcao": rastro.get("inicio_correcao"),
+                        "inicio_juros": rastro.get("inicio_juros"),
+                    }
+                    for numero, rastro in rastros.items()
+                    if rastro.get("verba_id") == item["id"]
+                ]
         else:
             entradas = _entradas_manuais(payload)
 
@@ -604,6 +985,7 @@ def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
         payload=payload.model_dump(mode="json"),
         verbas=verbas_memoria,
     )
+    encargos_consolidados = _aplicar_encargos_consolidados(corpo, payload.encargos_consolidados)
 
     codigo = gerar_codigo_calculo(session)
     data_geracao = datetime.now(timezone.utc)
@@ -613,6 +995,31 @@ def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
         if contexto_atualizacao is not None
         else None
     )
+    revisao_numero = 1
+    if payload.revisao_de:
+        origem = session.scalar(select(Calculo).where(Calculo.codigo == payload.revisao_de))
+        if origem is None:
+            raise ValueError(f"cálculo original não encontrado: {payload.revisao_de}")
+        # A numeração pertence à família inteira, inclusive quando se revisa
+        # uma revisão. Assim, original → R2 → R3 e duas revisões paralelas
+        # não reutilizam o mesmo número silenciosamente.
+        todos = session.scalars(select(Calculo)).all()
+        por_codigo = {item.codigo: item for item in todos}
+        raiz = origem
+        while raiz.revisao_de_codigo and raiz.revisao_de_codigo in por_codigo:
+            raiz = por_codigo[raiz.revisao_de_codigo]
+        familia = {raiz.codigo}
+        mudou = True
+        while mudou:
+            mudou = False
+            for item in todos:
+                if item.revisao_de_codigo in familia and item.codigo not in familia:
+                    familia.add(item.codigo)
+                    mudou = True
+        revisao_numero = max(
+            (item.revisao_numero or 1 for item in todos if item.codigo in familia),
+            default=1,
+        ) + 1
     memoria = montar_memoria(
         codigo=codigo,
         tipo=payload.tipo,
@@ -632,7 +1039,10 @@ def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
         atualizacao=bloco_atualizacao,
         overrides_utilizados=usados,
         verbas=verbas_memoria,
+        encargos_consolidados=encargos_consolidados,
     )
+    if payload.revisao_de:
+        memoria["revisao"] = {"origem_codigo": payload.revisao_de, "numero": revisao_numero}
 
     registro = Calculo(
         codigo=codigo,
@@ -645,6 +1055,8 @@ def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
         resultado_json=serializar_para_persistencia(corpo),
         bases_json=serializar_para_persistencia(corpo["bases"]),
         memoria_json=serializar_para_persistencia(memoria),
+        revisao_de_codigo=payload.revisao_de,
+        revisao_numero=revisao_numero,
         created_at=data_geracao,
     )
     session.add(registro)
@@ -656,6 +1068,8 @@ def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
     resposta["processo"] = payload.processo
     resposta["parte"] = payload.parte
     resposta["created_at"] = registro.created_at.isoformat()
+    resposta["revisao_de"] = registro.revisao_de_codigo
+    resposta["revisao_numero"] = registro.revisao_numero
     resposta["memoria"] = memoria
     return resposta
 

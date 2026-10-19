@@ -99,6 +99,53 @@ export function fracaoDePercentual(texto: string): string {
   return String(Number((paraNumero(texto) / 100).toFixed(6)));
 }
 
+/** Comparação de competência em MM/AAAA ou YYYY-MM — apenas ordenação. */
+function chaveCompetencia(competencia: string): string | null {
+  const br = /^(\d{1,2})\/(\d{4})$/.exec(competencia.trim());
+  if (br) return `${br[2]}-${String(br[1]).padStart(2, "0")}`;
+  const iso = /^(\d{4})-(\d{1,2})$/.exec(competencia.trim());
+  if (iso) return `${iso[1]}-${String(iso[2]).padStart(2, "0")}`;
+  return null;
+}
+
+/**
+ * Período da dívida: da primeira regra até o fim da última.
+ *
+ * A data de atualização NÃO estende a obrigação — ela só limita o período
+ * quando a regra é aberta ou quando já venceu tudo. Correção e juros seguem
+ * até a data de atualização (campo `data_base` do payload).
+ */
+export function periodoDaDivida(estado: EstadoAlimentos): {
+  inicio: string;
+  fim: string;
+} {
+  const regras = estado.regras
+    .map((r) => ({ inicio: r.inicio.trim(), fim: r.fim.trim() }))
+    .filter((r) => chaveCompetencia(r.inicio) !== null);
+
+  const ate = competenciaDeData(estado.atualizarAte) ?? "";
+  if (regras.length === 0) return { inicio: "", fim: ate };
+
+  const inicio = regras
+    .map((r) => r.inicio)
+    .reduce((a, b) => ((chaveCompetencia(a) ?? "") <= (chaveCompetencia(b) ?? "") ? a : b));
+
+  if (regras.some((r) => !r.fim || chaveCompetencia(r.fim) === null)) {
+    return { inicio, fim: ate };
+  }
+
+  const fimRegra = regras
+    .map((r) => r.fim)
+    .reduce((a, b) => ((chaveCompetencia(a) ?? "") >= (chaveCompetencia(b) ?? "") ? a : b));
+
+  if (!ate) return { inicio, fim: fimRegra };
+  const fimAte = chaveCompetencia(ate) ?? "";
+  return {
+    inicio,
+    fim: (chaveCompetencia(fimRegra) ?? "") <= fimAte ? fimRegra : ate,
+  };
+}
+
 /** Linhas totalmente vazias não contam como lançamento. */
 function lancados(pagamentos: PagamentoAlimento[]): PagamentoAlimento[] {
   return pagamentos.filter(
@@ -187,7 +234,7 @@ export function montarPayloadAlimentos(
     descricao: "",
   }));
 
-  const ate = competenciaDeData(estado.atualizarAte);
+  const ate = periodoDaDivida(estado).fim;
 
   return {
     tipo: "alimentos",

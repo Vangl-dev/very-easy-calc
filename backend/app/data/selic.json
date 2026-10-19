@@ -1,0 +1,329 @@
+{
+  "metadata": {
+    "source": "Banco Central do Brasil",
+    "sourceUrl": "https://api.bcb.gov.br/dados/serie/bcdata.sgs.11/dados?formato=json",
+    "sourceLabel": "SELIC - Serie SGS 11 do Banco Central do Brasil",
+    "version": "2026.09",
+    "updatedAt": "2026-10-07",
+    "lastMonth": "2026-09",
+    "totalRecords": 45,
+    "note": "Fator acumulado da taxa SELIC (SGS 11) por competência."
+  },
+  "factors": [
+    {
+      "year": 2023,
+      "month": 1,
+      "factor": 1.01123315,
+      "mensal": 1.01123315,
+      "sourceDate": "01/01/2023"
+    },
+    {
+      "year": 2023,
+      "month": 2,
+      "factor": 1.0205177,
+      "mensal": 1.00918141,
+      "sourceDate": "01/02/2023"
+    },
+    {
+      "year": 2023,
+      "month": 3,
+      "factor": 1.03250544,
+      "mensal": 1.01174673,
+      "sourceDate": "01/03/2023"
+    },
+    {
+      "year": 2023,
+      "month": 4,
+      "factor": 1.0419853,
+      "mensal": 1.00918141,
+      "sourceDate": "01/04/2023"
+    },
+    {
+      "year": 2023,
+      "month": 5,
+      "factor": 1.05369008,
+      "mensal": 1.01123315,
+      "sourceDate": "01/05/2023"
+    },
+    {
+      "year": 2023,
+      "month": 6,
+      "factor": 1.06498545,
+      "mensal": 1.01071982,
+      "sourceDate": "01/06/2023"
+    },
+    {
+      "year": 2023,
+      "month": 7,
+      "factor": 1.0764019,
+      "mensal": 1.01071982,
+      "sourceDate": "01/07/2023"
+    },
+    {
+      "year": 2023,
+      "month": 8,
+      "factor": 1.08864593,
+      "mensal": 1.01137496,
+      "sourceDate": "01/08/2023"
+    },
+    {
+      "year": 2023,
+      "month": 9,
+      "factor": 1.09923738,
+      "mensal": 1.00972902,
+      "sourceDate": "01/09/2023"
+    },
+    {
+      "year": 2023,
+      "month": 10,
+      "factor": 1.11020301,
+      "mensal": 1.00997567,
+      "sourceDate": "01/10/2023"
+    },
+    {
+      "year": 2023,
+      "month": 11,
+      "factor": 1.12037234,
+      "mensal": 1.00915988,
+      "sourceDate": "01/11/2023"
+    },
+    {
+      "year": 2023,
+      "month": 12,
+      "factor": 1.13039435,
+      "mensal": 1.00894525,
+      "sourceDate": "01/12/2023"
+    },
+    {
+      "year": 2024,
+      "month": 1,
+      "factor": 1.14132176,
+      "mensal": 1.0096669,
+      "sourceDate": "01/01/2024"
+    },
+    {
+      "year": 2024,
+      "month": 2,
+      "factor": 1.15045462,
+      "mensal": 1.008002,
+      "sourceDate": "01/02/2024"
+    },
+    {
+      "year": 2024,
+      "month": 3,
+      "factor": 1.16002265,
+      "mensal": 1.00831674,
+      "sourceDate": "01/03/2024"
+    },
+    {
+      "year": 2024,
+      "month": 4,
+      "factor": 1.17031707,
+      "mensal": 1.00887433,
+      "sourceDate": "01/04/2024"
+    },
+    {
+      "year": 2024,
+      "month": 5,
+      "factor": 1.18005928,
+      "mensal": 1.00832442,
+      "sourceDate": "01/05/2024"
+    },
+    {
+      "year": 2024,
+      "month": 6,
+      "factor": 1.18936213,
+      "mensal": 1.00788337,
+      "sourceDate": "01/06/2024"
+    },
+    {
+      "year": 2024,
+      "month": 7,
+      "factor": 1.2001511,
+      "mensal": 1.00907122,
+      "sourceDate": "01/07/2024"
+    },
+    {
+      "year": 2024,
+      "month": 8,
+      "factor": 1.21056255,
+      "mensal": 1.00867512,
+      "sourceDate": "01/08/2024"
+    },
+    {
+      "year": 2024,
+      "month": 9,
+      "factor": 1.22067265,
+      "mensal": 1.00835157,
+      "sourceDate": "01/09/2024"
+    },
+    {
+      "year": 2024,
+      "month": 10,
+      "factor": 1.23199997,
+      "mensal": 1.00927958,
+      "sourceDate": "01/10/2024"
+    },
+    {
+      "year": 2024,
+      "month": 11,
+      "factor": 1.24176962,
+      "mensal": 1.0079299,
+      "sourceDate": "01/11/2024"
+    },
+    {
+      "year": 2024,
+      "month": 12,
+      "factor": 1.25333584,
+      "mensal": 1.00931431,
+      "sourceDate": "01/12/2024"
+    },
+    {
+      "year": 2025,
+      "month": 1,
+      "factor": 1.26603466,
+      "mensal": 1.01013201,
+      "sourceDate": "01/01/2025"
+    },
+    {
+      "year": 2025,
+      "month": 2,
+      "factor": 1.27850918,
+      "mensal": 1.00985322,
+      "sourceDate": "01/02/2025"
+    },
+    {
+      "year": 2025,
+      "month": 3,
+      "factor": 1.29083439,
+      "mensal": 1.0096403,
+      "sourceDate": "01/03/2025"
+    },
+    {
+      "year": 2025,
+      "month": 4,
+      "factor": 1.30446404,
+      "mensal": 1.0105588,
+      "sourceDate": "01/04/2025"
+    },
+    {
+      "year": 2025,
+      "month": 5,
+      "factor": 1.31931897,
+      "mensal": 1.01138776,
+      "sourceDate": "01/05/2025"
+    },
+    {
+      "year": 2025,
+      "month": 6,
+      "factor": 1.33379257,
+      "mensal": 1.01097051,
+      "sourceDate": "01/06/2025"
+    },
+    {
+      "year": 2025,
+      "month": 7,
+      "factor": 1.3508082,
+      "mensal": 1.01275733,
+      "sourceDate": "01/07/2025"
+    },
+    {
+      "year": 2025,
+      "month": 8,
+      "factor": 1.36653371,
+      "mensal": 1.01164156,
+      "sourceDate": "01/08/2025"
+    },
+    {
+      "year": 2025,
+      "month": 9,
+      "factor": 1.38320445,
+      "mensal": 1.01219929,
+      "sourceDate": "01/09/2025"
+    },
+    {
+      "year": 2025,
+      "month": 10,
+      "factor": 1.40085044,
+      "mensal": 1.01275733,
+      "sourceDate": "01/10/2025"
+    },
+    {
+      "year": 2025,
+      "month": 11,
+      "factor": 1.41559723,
+      "mensal": 1.01052703,
+      "sourceDate": "01/11/2025"
+    },
+    {
+      "year": 2025,
+      "month": 12,
+      "factor": 1.43286651,
+      "mensal": 1.01219929,
+      "sourceDate": "01/12/2025"
+    },
+    {
+      "year": 2026,
+      "month": 1,
+      "factor": 1.44954732,
+      "mensal": 1.01164156,
+      "sourceDate": "01/01/2026"
+    },
+    {
+      "year": 2026,
+      "month": 2,
+      "factor": 1.46399962,
+      "mensal": 1.00997022,
+      "sourceDate": "01/02/2026"
+    },
+    {
+      "year": 2026,
+      "month": 3,
+      "factor": 1.48174408,
+      "mensal": 1.01212054,
+      "sourceDate": "01/03/2026"
+    },
+    {
+      "year": 2026,
+      "month": 4,
+      "factor": 1.49789596,
+      "mensal": 1.01090058,
+      "sourceDate": "01/04/2026"
+    },
+    {
+      "year": 2026,
+      "month": 5,
+      "factor": 1.5139749,
+      "mensal": 1.01073435,
+      "sourceDate": "01/05/2026"
+    },
+    {
+      "year": 2026,
+      "month": 6,
+      "factor": 1.53092391,
+      "mensal": 1.01119504,
+      "sourceDate": "01/06/2026"
+    },
+    {
+      "year": 2026,
+      "month": 7,
+      "factor": 1.54952801,
+      "mensal": 1.0121522,
+      "sourceDate": "01/07/2026"
+    },
+    {
+      "year": 2026,
+      "month": 8,
+      "factor": 1.56646626,
+      "mensal": 1.01093123,
+      "sourceDate": "01/08/2026"
+    },
+    {
+      "year": 2026,
+      "month": 9,
+      "factor": 1.58341029,
+      "mensal": 1.01081673,
+      "sourceDate": "01/09/2026"
+    }
+  ]
+}

@@ -1,12 +1,22 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal
 
 from app.core.money import round_brl
 from app.engine.configuracao import ConfiguracaoCalculo
-from app.engine.juros import MODALIDADE_TAXA_LEGAL
+from app.engine.juros import (
+    MODALIDADE_REGIMES,
+    MODALIDADE_TAXA_LEGAL,
+    TIPO_SELIC,
+    TIPO_SELIC_MENOS_IPCA,
+    TIPO_TAXA_LEGAL,
+    ConfigJuros,
+)
+from app.indexers.ipca import KEY as IpcaKey
+from app.indexers.selic import KEY as SELIC_KEY
+from app.indexers.taxa_legal import KEY as TAXA_LEGAL_KEY
 from app.engine.parcela import ParcelaInput, ResultadoParcela, calcular_parcela
 from app.indexers import obter
 
@@ -72,6 +82,43 @@ def _base_utilizada(key: str, papel: str) -> BaseUtilizada:
     )
 
 
+def _indexadores_de_correcao(config: ConfigCorrecao) -> list[str]:
+    if config.segmentos:
+        return list(dict.fromkeys(s.indexador for s in config.segmentos))
+    return [config.indexador]
+
+
+def _indexadores_de_juros(config: ConfigJuros) -> list[str]:
+    if not config.aplicar:
+        return []
+    if config.modalidade == MODALIDADE_TAXA_LEGAL:
+        return [TAXA_LEGAL_KEY]
+    if config.modalidade == MODALIDADE_REGIMES:
+        chaves: list[str] = []
+        for regra in config.regras:
+            if regra.tipo == TIPO_SELIC:
+                chaves.append(SELIC_KEY)
+            elif regra.tipo == TIPO_SELIC_MENOS_IPCA:
+                chaves.append(SELIC_KEY)
+                chaves.append(regra.indexador or IpcaKey)
+            elif regra.tipo == TIPO_TAXA_LEGAL:
+                chaves.append(TAXA_LEGAL_KEY)
+        return list(dict.fromkeys(chaves))
+    return []
+
+
+def _registrar_base(
+    coletadas: dict[str, BaseUtilizada], key: str, papel: str
+) -> None:
+    """Acumula papéis quando a mesma base serve correção e juros."""
+    base = _base_utilizada(key, papel)
+    existente = coletadas.get(key)
+    if existente is None:
+        coletadas[key] = base
+    elif papel not in existente.papel.split(" / "):
+        coletadas[key] = replace(existente, papel=f"{existente.papel} / {papel}")
+
+
 def coletar_bases(
     configuracao: ConfiguracaoCalculo,
     entradas: list[ParcelaInput],
@@ -82,23 +129,20 @@ def coletar_bases(
     for entrada in entradas:
         cfg_correcao = entrada.correcao or configuracao.correcao
         if cfg_correcao.aplicar:
-            base = _base_utilizada(cfg_correcao.indexador, "Correção monetária")
-            coletadas[base.key] = base
+            for key in _indexadores_de_correcao(cfg_correcao):
+                _registrar_base(coletadas, key, "Correção monetária")
 
-        cfg_juros = entrada.juros or configuracao.juros
-        if cfg_juros.aplicar and cfg_juros.modalidade == MODALIDADE_TAXA_LEGAL:
-            base = _base_utilizada("taxa_legal", "Juros")
-            coletadas[base.key] = base
+        for key in _indexadores_de_juros(entrada.juros or configuracao.juros):
+            _registrar_base(coletadas, key, "Juros")
 
         for key in entrada.indexadores:
             if key not in coletadas:
-                base = _base_utilizada(key, "Composição do principal")
-                coletadas[base.key] = base
+                _registrar_base(coletadas, key, "Composição do principal")
 
     if not coletadas:
         return ()
 
-    ordem = ["tjsp_tabela_pratica", "taxa_legal", "salario_minimo"]
+    ordem = ["tjsp_tabela_pratica", "selic", "taxa_legal", "salario_minimo"]
     return tuple(
         coletadas[k]
         for k in sorted(coletadas, key=lambda k: (ordem.index(k) if k in ordem else 99, k))
@@ -118,14 +162,23 @@ def calcular(
 
     resultados = tuple(calcular_parcela(p, configuracao=configuracao) for p in entradas)
 
-    principal = sum((r.principal for r in resultados), Decimal("0.00"))
-    correcao = sum((r.correcao.correcao for r in resultados), Decimal("0.00"))
-    juros = sum((r.juros.juros for r in resultados), Decimal("0.00"))
-    multa = sum((r.multa.valor for r in resultados), Decimal("0.00"))
-    honorarios = sum((r.honorarios.valor for r in resultados), Decimal("0.00"))
-    pagamentos = sum((r.total_pago for r in resultados), Decimal("0.00"))
+    # Composição no total vem da semântica explícita da verba (entra_no_total).
+    # A verba-base continua existindo e alimentando as derivadas; ela entra na
+    # soma apenas quando configurada (ou pelo padrão histórico, se ausente).
+    somaveis = tuple(
+        r
+        for r, entrada in zip(resultados, entradas, strict=True)
+        if entrada.entra_no_total
+    )
+
+    principal = sum((r.principal for r in somaveis), Decimal("0.00"))
+    correcao = sum((r.correcao.correcao for r in somaveis), Decimal("0.00"))
+    juros = sum((r.juros.juros for r in somaveis), Decimal("0.00"))
+    multa = sum((r.multa.valor for r in somaveis), Decimal("0.00"))
+    honorarios = sum((r.honorarios.valor for r in somaveis), Decimal("0.00"))
+    pagamentos = sum((r.total_pago for r in somaveis), Decimal("0.00"))
     total = round_brl(principal + correcao + juros + multa + honorarios)
-    soma_totais = sum((r.total for r in resultados), Decimal("0.00"))
+    soma_totais = sum((r.total for r in somaveis), Decimal("0.00"))
     saldo = round_brl(total - pagamentos)
 
     vencimentos = [r.vencimento for r in resultados]
