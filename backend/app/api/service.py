@@ -59,6 +59,7 @@ from app.indexers.overrides import (
 )
 from app.indexers.salario_minimo import KEY as SalarioKey
 from app.indexers.selic import KEY as SelicKey
+from app.engine.imputacao import formatar_brl
 from app.models.entities import Calculo
 
 __all__ = ["gerar_codigo_calculo", "serializar_para_persistencia", "executar_calculo"]
@@ -679,6 +680,30 @@ def _aplicar_encargos_consolidados(corpo: dict, schemas: list[EncargoConsolidado
     return encargos
 
 
+def _abater_excedente_dos_encargos(corpo: dict) -> None:
+    """Pagamento acima de principal e juros abate multa e honorários restantes."""
+    resumo = corpo["resumo"]
+    for imputacao in corpo.get("imputacao_pagamentos") or []:
+        excedente = to_decimal(imputacao.get("credito_atualizado") or "0")
+        if excedente <= 0:
+            continue
+        saldo = to_decimal(resumo["saldo"])
+        usado = round_brl(min(excedente, max(saldo, Decimal("0.00"))))
+        imputacao["encargos"] = str(usado)
+        imputacao["valor_atualizado"] = str(
+            round_brl(to_decimal(imputacao["valor_atualizado"]) + usado)
+        )
+        resumo["saldo"] = str(round_brl(saldo - usado))
+        resumo["pagamentos"] = str(round_brl(to_decimal(resumo["pagamentos"]) + usado))
+        sobra = round_brl(excedente - usado)
+        if sobra > 0:
+            data = date.fromisoformat(imputacao["data"]).strftime("%d/%m/%Y")
+            corpo["avisos"].append(
+                f"pagamento de {data}: {formatar_brl(sobra)} (valor na data final) excedem todo o "
+                "débito e não foram abatidos"
+            )
+
+
 def _montar_regra(schema: RegraAlimentoSchema) -> RegraAlimento:
     return RegraAlimento(
         inicio=Competencia.parse(schema.inicio),
@@ -950,6 +975,11 @@ def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
             juros=_montar_config_juros(payload.juros),
             multa=_montar_config_encargo(payload.multa),
             honorarios=_montar_config_encargo(payload.honorarios),
+            criterio_pagamentos=(
+                payload.criterio_pagamentos
+                if payload.tipo == "parcelas" and payload.verbas
+                else "nominal"
+            ),
         )
         contexto_atualizacao = None
         if payload.tipo == "alimentos":
@@ -986,6 +1016,7 @@ def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
         verbas=verbas_memoria,
     )
     encargos_consolidados = _aplicar_encargos_consolidados(corpo, payload.encargos_consolidados)
+    _abater_excedente_dos_encargos(corpo)
 
     codigo = gerar_codigo_calculo(session)
     data_geracao = datetime.now(timezone.utc)
@@ -1043,6 +1074,8 @@ def executar_calculo(payload: CalculoRequest, session: Session) -> dict:
     )
     if payload.revisao_de:
         memoria["revisao"] = {"origem_codigo": payload.revisao_de, "numero": revisao_numero}
+    memoria["criterios"]["pagamentos_criterio"] = configuracao.criterio_pagamentos
+    memoria["imputacao_pagamentos"] = list(corpo.get("imputacao_pagamentos") or [])
 
     registro = Calculo(
         codigo=codigo,

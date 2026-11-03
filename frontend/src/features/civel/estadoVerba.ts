@@ -477,12 +477,16 @@ export function montarVerbaPayload(
     },
     juros: {
       aplicar: verba.jurosAplicar,
-      // juros ativos usam sempre a Taxa Legal oficial já existente no projeto
+      // sem modalidade escolhida, juros ativos usam a Taxa Legal oficial
       modalidade:
         verba.jurosAplicar && !verba.jurosModalidade
           ? "taxa_legal"
           : verba.jurosModalidade,
-      taxa: verba.jurosModalidade === "fixa" ? verba.jurosTaxa.trim() || null : null,
+      // a tela guarda a taxa em porcentagem ("1"); o backend espera fração ("0.01")
+      taxa:
+        verba.jurosModalidade === "fixa" && verba.jurosTaxa.trim()
+          ? fracaoDePercentual(verba.jurosTaxa)
+          : null,
       unidade: "mensal",
       base: verba.jurosBase,
       inicio: verba.jurosAplicar ? verba.jurosInicio || dataBase || null : null,

@@ -12,7 +12,6 @@ import {
   JUROS_REGIME,
   anexarPagamentosGlobais,
   aplicarEmTodas,
-  aplicarEncargoGeral,
   contaDerivacao,
   dependentesDe,
   errosPagamentos,
@@ -27,9 +26,7 @@ import {
   opcoesDeBase,
   podeRemoverVerba,
   resumoVerba,
-  verbaSomavel,
   valorProjetado,
-  type ConfigEncargoGeral,
   type EstadoPagamentoVerba,
   type EstadoRegime,
   type EstadoVerba,
@@ -38,8 +35,26 @@ import {
 import { api, mensagemErroAmigavel } from "../../lib/api";
 import { coberturaInsuficientePara } from "../../lib/cobertura";
 import { rotuloCompetenciaExtenso } from "../../lib/competencia";
-import { obterRascunho, salvarRascunho } from "../../lib/rascunhos";
+import { obterRascunho, salvarRascunho, type RascunhoCivel } from "../../lib/rascunhos";
 import type { CalculoCivelPayload, CoberturaEfetiva, EncargoConsolidadoPayload, VerbaPayload } from "../../types/api";
+import {
+  ENCARGOS_SENTENCA_PADRAO,
+  JUROS_DESDE_PADRAO,
+  TAXAS_JUROS,
+  camposDaTaxa,
+  errosEncargosSentenca,
+  hidratarEncargosSentenca,
+  inicioJurosPara,
+  jurosDesdeDasVerbas,
+  montarConferencia,
+  montarEncargosSentenca,
+  taxaDaVerba,
+  type Conferencia,
+  type EstadoEncargosSentenca,
+  type EstadoJurosDesde,
+  type TaxaJuros,
+} from "./criteriosSentenca";
+import { CamposJuros, PainelConferencia, SecaoEncargosSentenca } from "./SecoesSentenca";
 
 const INDEXADORES_CORRECAO = [{ valor: "tjsp_tabela_pratica", rotulo: "Tabela Prática TJSP" }];
 
@@ -48,28 +63,26 @@ const COLUNAS_LANCAMENTO =
 
 type ModoCalculo = "simples" | "detalhado";
 
-type EstadoEncargoConsolidado = {
-  ativo: boolean;
-  tipo: "multa" | "honorarios";
-  percentual: string;
-  base: "principal" | "corrigido" | "com_juros";
-};
-
-type AvisoCriterioDesativado = {
-  verba: string;
-  criterio: "juros" | "correção monetária";
-};
-
-function criteriosDesativados(verbas: EstadoVerba[]): AvisoCriterioDesativado[] {
-  return verbas.flatMap((verba, indice) => {
-    const nome = verba.nome.trim() || `Verba ${indice + 1}`;
-    const avisos: AvisoCriterioDesativado[] = [];
-    if (!verba.jurosAplicar) avisos.push({ verba: nome, criterio: "juros" });
-    if (!verba.correcaoAplicar) {
-      avisos.push({ verba: nome, criterio: "correção monetária" });
-    }
-    return avisos;
-  });
+/** Rascunhos antigos guardavam o "encargo único sobre o total". */
+function encargosDoRascunho(estado: RascunhoCivel["estado"]): EstadoEncargosSentenca {
+  if (estado.encargosSentenca) return estado.encargosSentenca;
+  const legado = estado.encargoConsolidado;
+  if (!legado?.ativo) return ENCARGOS_SENTENCA_PADRAO;
+  const componentes: EncargoConsolidadoPayload["componentes"] =
+    legado.base === "principal"
+      ? ["principal"]
+      : legado.base === "corrigido"
+        ? ["principal_corrigido"]
+        : ["principal_corrigido", "juros_individuais"];
+  return (
+    hidratarEncargosSentenca([{
+      id: "encargo-consolidado-1",
+      tipo: legado.tipo,
+      ordem: 1,
+      componentes,
+      percentual: fracaoDePercentual(legado.percentual),
+    }]) ?? ENCARGOS_SENTENCA_PADRAO
+  );
 }
 
 function separarPagamentosDasVerbas(
@@ -107,7 +120,7 @@ function montarPayload(
   dataBaseCalculo: string,
   verbas: EstadoVerba[],
   pagamentos: EstadoPagamentoVerba[],
-  encargoConsolidado: EstadoEncargoConsolidado,
+  encargosSentenca: EstadoEncargosSentenca,
   revisaoDe: string | null,
 ): CalculoCivelPayload {
   const pagamentosValidos = pagamentos.filter(
@@ -117,21 +130,6 @@ function montarPayload(
     verbas,
     pagamentosValidos,
   );
-  const componentes = encargoConsolidado.base === "principal"
-    ? ["principal"] as const
-    : encargoConsolidado.base === "corrigido"
-      ? ["principal_corrigido"] as const
-      : ["principal_corrigido", "juros_individuais"] as const;
-  const encargos_consolidados: EncargoConsolidadoPayload[] = encargoConsolidado.ativo
-    ? [{
-      id: "encargo-consolidado-1",
-      tipo: encargoConsolidado.tipo,
-      ordem: 1,
-      componentes: [...componentes],
-      percentual: fracaoDePercentual(encargoConsolidado.percentual),
-      entra_no_total: true,
-    }]
-    : [];
   return {
     tipo: "parcelas",
     titulo: identificacao.titulo.trim(),
@@ -145,7 +143,8 @@ function montarPayload(
     multa: { aplicar: false },
     honorarios: { aplicar: false },
     pagamentos: [],
-    encargos_consolidados,
+    encargos_consolidados: montarEncargosSentenca(encargosSentenca),
+    criterio_pagamentos: "data_pagamento",
   };
 }
 
@@ -154,11 +153,23 @@ function errosValidacao(
   dataBaseCalculo: string,
   verbas: EstadoVerba[],
   pagamentos: EstadoPagamentoVerba[],
+  encargosSentenca: EstadoEncargosSentenca,
+  jurosDesde: EstadoJurosDesde,
 ): string[] {
   const erros: string[] = [];
   if (!identificacao.titulo.trim()) erros.push("Informe o nome do cálculo.");
   if (!dataBaseCalculo) erros.push("Informe até quando o cálculo deve ser atualizado.");
-  erros.push(...errosVerbas(verbas, dataBaseCalculo));
+  const jurosLigados = verbas.some((v) => v.jurosAplicar);
+  const semDataUnica = jurosLigados && jurosDesde.termo === "data_unica" && !jurosDesde.data;
+  if (semDataUnica) {
+    erros.push("Juros: informe a data de início dos juros (ex.: citação ou trânsito em julgado).");
+  }
+  erros.push(
+    ...errosVerbas(verbas, dataBaseCalculo).filter(
+      (e) => !(semDataUnica && e.endsWith("informe a data de início dos juros.")),
+    ),
+  )
+  erros.push(...errosEncargosSentenca(encargosSentenca));
   erros.push(...errosPagamentos(pagamentos));
   return erros;
 }
@@ -183,7 +194,7 @@ function hidratarVerba(verba: VerbaPayload, indice: number): EstadoVerba {
     correcaoInicio: correcao.termo_inicial ?? verba.data_base, correcaoFim: correcao.termo_final ?? "",
     jurosAplicar: juros.aplicar, jurosModalidade: juros.modalidade ?? "taxa_legal",
     jurosTaxa: percentualParaTela(juros.taxa), jurosBase: juros.base ?? "corrigido",
-    jurosInicio: juros.inicio ?? "", jurosFim: juros.fim ?? "",
+    jurosInicio: juros.inicio ?? (juros.aplicar ? correcao.termo_inicial ?? verba.data_base ?? "" : ""), jurosFim: juros.fim ?? "",
     multaAplicar: multa.aplicar, multaPercentual: percentualParaTela(multa.percentual),
     multaValorFixo: multa.valor_fixo ?? "", multaBase: multa.base ?? "corrigido",
     honorariosAplicar: honorarios.aplicar, honorariosPercentual: percentualParaTela(honorarios.percentual),
@@ -422,9 +433,18 @@ function LinhaValor({ verba, indice, verbas, onChange, onRemover }: LinhaValorPr
           </label>
           {verba.jurosAplicar ? (
             <>
-              <p className="text-[11px] leading-tight text-ink-500">
-                Taxa Legal (BCB SGS 29543)
-              </p>
+              <select
+                className="field-line text-[12px]"
+                aria-label={`Taxa de juros do lançamento ${indice + 1}`}
+                value={taxaDaVerba(verba)}
+                onChange={(e) => onChange(camposDaTaxa(e.target.value as TaxaJuros))}
+              >
+                {TAXAS_JUROS.map((op) => (
+                  <option key={op.valor} value={op.valor}>
+                    {op.rotulo}
+                  </option>
+                ))}
+              </select>
               <label
                 htmlFor={`lanc-juros-${verba.id}`}
                 className="label-legal lg:sr-only"
@@ -791,33 +811,36 @@ function LinhaValor({ verba, indice, verbas, onChange, onRemover }: LinhaValorPr
 
 interface SecaoEncargosProps {
   verbas: EstadoVerba[];
+  jurosDesde: EstadoJurosDesde;
   onAlternarCorrecao: (ligado: boolean) => void;
   onAlternarJuros: (ligado: boolean) => void;
+  onJurosDesde: (parcial: Partial<EstadoJurosDesde>) => void;
+  onJurosTaxa: (taxa: TaxaJuros) => void;
   onJurosBase: (base: string) => void;
-  onMulta: (parcial: Partial<ConfigEncargoGeral>) => void;
-  onHonorarios: (parcial: Partial<ConfigEncargoGeral>) => void;
 }
 
 function SecaoEncargos({
   verbas,
+  jurosDesde,
   onAlternarCorrecao,
   onAlternarJuros,
+  onJurosDesde,
+  onJurosTaxa,
   onJurosBase,
-  onMulta,
-  onHonorarios,
 }: SecaoEncargosProps) {
   const vazio = verbas.length === 0;
   const correcaoGlobal = !vazio && verbas.every((v) => v.correcaoAplicar);
   const jurosGlobal = !vazio && verbas.every((v) => v.jurosAplicar);
-  const refMulta = verbas.find((v) => v.multaAplicar);
-  const refHon = verbas.find((v) => v.honorariosAplicar);
-  const jurosBase = verbas.find((v) => v.jurosAplicar)?.jurosBase ?? "corrigido";
-  const somaveis = verbas.filter((v) => verbaSomavel(v, verbas));
-  const multaAtiva = Boolean(refMulta);
-  const honAtiva = Boolean(refHon);
-  const baseConsolidada = verbas.length > 1 && (multaAtiva || honAtiva);
-  const multaFixaSoPrimeira = multaAtiva && refMulta?.multaValorFixo.trim() && somaveis.length > 1;
-  const honFixaSoPrimeira = honAtiva && refHon?.honorariosValorFixo.trim() && somaveis.length > 1;
+  const referencia = verbas.find((v) => v.jurosAplicar);
+  const jurosBase = referencia?.jurosBase ?? "corrigido";
+  const taxa = referencia ? taxaDaVerba(referencia) : "legal";
+  const rotuloTaxa = TAXAS_JUROS.find((t) => t.valor === taxa)?.rotulo ?? "";
+  const desdeTexto =
+    jurosDesde.termo === "data_unica"
+      ? jurosDesde.data
+        ? `desde ${formatarDataBR(jurosDesde.data)} para todos os valores`
+        : "desde a data informada abaixo"
+      : "desde a data de cada valor";
 
   return (
     <div className="mt-4 space-y-3">
@@ -825,7 +848,7 @@ function SecaoEncargos({
         <Switch
           id="enc-correcao"
           label="Correção monetária"
-          description="Tabela Prática TJSP, automática até a data final."
+          description="Tabela Prática TJSP, desde a data de cada valor até a data final."
           checked={correcaoGlobal}
           onChange={onAlternarCorrecao}
           disabled={vazio}
@@ -833,7 +856,7 @@ function SecaoEncargos({
         <Switch
           id="enc-juros"
           label="Juros"
-          description="Taxa Legal (BCB SGS 29543), desde a data de cada valor."
+          description={jurosGlobal ? `${rotuloTaxa}, ${desdeTexto}.` : "Desligados."}
           checked={jurosGlobal}
           onChange={onAlternarJuros}
           disabled={vazio}
@@ -841,79 +864,14 @@ function SecaoEncargos({
       </div>
 
       {jurosGlobal ? (
-        <div className="max-w-xs">
-          <Select
-            id="enc-juros-base"
-            label="Juros sobre"
-            value={jurosBase}
-            onChange={(e) => onJurosBase(e.target.value)}
-          >
-            <option value="corrigido">Valor corrigido</option>
-            <option value="principal">Valor original</option>
-          </Select>
-        </div>
-      ) : null}
-
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="space-y-3">
-          <Switch
-            id="enc-multa"
-            label="Multa"
-            description="Percentual sobre cada valor, ou valor fixo lançado uma vez."
-            checked={multaAtiva}
-            onChange={(c) => onMulta({ aplicar: c })}
-            disabled={vazio}
-          />
-          {multaAtiva && refMulta ? (
-            <div className="rounded-xl border border-ink-200 bg-ink-50/50 px-3 py-3">
-              <CamposEncargo
-                prefixo="multa"
-                indice="global"
-                percentual={refMulta.multaPercentual}
-                valorFixo={refMulta.multaValorFixo}
-                base={refMulta.multaBase}
-                onChange={onMulta}
-              />
-            </div>
-          ) : null}
-        </div>
-        <div className="space-y-3">
-          <Switch
-            id="enc-honorarios"
-            label="Honorários"
-            description="Percentual sobre cada valor, ou valor fixo lançado uma vez."
-            checked={honAtiva}
-            onChange={(c) => onHonorarios({ aplicar: c })}
-            disabled={vazio}
-          />
-          {honAtiva && refHon ? (
-            <div className="rounded-xl border border-ink-200 bg-ink-50/50 px-3 py-3">
-              <CamposEncargo
-                prefixo="honorarios"
-                indice="global"
-                percentual={refHon.honorariosPercentual}
-                valorFixo={refHon.honorariosValorFixo}
-                base={refHon.honorariosBase}
-                onChange={onHonorarios}
-              />
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      {multaFixaSoPrimeira || honFixaSoPrimeira ? (
-        <p className="rounded border border-line bg-ink-50/60 px-3 py-2 text-[12px] text-ink-600">
-          Valor fixo lançado uma única vez, no primeiro valor que compõe o total —
-          sem multiplicar por cada linha.
-        </p>
-      ) : null}
-
-      {baseConsolidada ? (
-        <p className="rounded border border-line bg-ink-50/60 px-3 py-2 text-[12px] text-ink-600">
-          Com mais de um valor, multa e honorários percentuais incidem sobre cada
-          valor e são somados (podem diferir em centavos do total consolidado).
-          O cálculo sobre base consolidada chega na próxima fase.
-        </p>
+        <CamposJuros
+          desde={jurosDesde}
+          taxa={taxa}
+          base={jurosBase}
+          onDesde={onJurosDesde}
+          onTaxa={onJurosTaxa}
+          onBase={onJurosBase}
+        />
       ) : null}
     </div>
   );
@@ -948,9 +906,10 @@ function SecaoPagamentos({
         </Button>
       </div>
       <p className="mt-3 max-w-[70ch] text-[13px] leading-relaxed text-ink-500">
-        Cada pagamento abate o saldo atualizado. Na memória de cálculo eles
-        aparecem lançados uma única vez, no primeiro valor que compõe o total —
-        sem dupla subtração.
+        Cada pagamento é abatido na data em que foi feito: quita primeiro os
+        juros vencidos até ali e depois o principal, começando pelo valor mais
+        antigo (art. 354 do CC). O que restar continua corrigido e com juros
+        até a data final.
       </p>
 
       {pagamentos.length === 0 ? (
@@ -1044,9 +1003,9 @@ export function FormCivel() {
   const [indexador, setIndexador] = useState(INDEXADORES_CORRECAO[0].valor);
   const [verbas, setVerbas] = useState<EstadoVerba[]>(() => [novaVerba()]);
   const [pagamentos, setPagamentos] = useState<EstadoPagamentoVerba[]>([]);
-  const [encargoConsolidado, setEncargoConsolidado] = useState<EstadoEncargoConsolidado>({
-    ativo: false, tipo: "multa", percentual: "10", base: "corrigido",
-  });
+  const [encargosSentenca, setEncargosSentenca] =
+    useState<EstadoEncargosSentenca>(ENCARGOS_SENTENCA_PADRAO);
+  const [jurosDesde, setJurosDesde] = useState<EstadoJurosDesde>(JUROS_DESDE_PADRAO);
   const [revisaoDe, setRevisaoDe] = useState<string | null>(null);
   const [modo, setModo] = useState<ModoCalculo>(() =>
     params.get("modo") === "detalhado" ? "detalhado" : "simples",
@@ -1058,9 +1017,7 @@ export function FormCivel() {
   const [cobertura, setCobertura] = useState<CoberturaEfetiva | null>(null);
   const [idRascunho, setIdRascunho] = useState<string | null>(null);
   const [avisoRascunho, setAvisoRascunho] = useState<string | null>(null);
-  const [confirmacaoCriterios, setConfirmacaoCriterios] = useState<
-    AvisoCriterioDesativado[] | null
-  >(null);
+  const [conferencia, setConferencia] = useState<Conferencia | null>(null);
 
   useEffect(() => {
     const id = params.get("rascunho");
@@ -1072,9 +1029,8 @@ export function FormCivel() {
     setIndexador(rascunho.estado.indexador);
     setVerbas(rascunho.estado.verbas);
     setPagamentos(rascunho.estado.pagamentos ?? []);
-    setEncargoConsolidado(rascunho.estado.encargoConsolidado ?? {
-      ativo: false, tipo: "multa", percentual: "10", base: "corrigido",
-    });
+    setEncargosSentenca(encargosDoRascunho(rascunho.estado));
+    setJurosDesde(rascunho.estado.jurosDesde ?? jurosDesdeDasVerbas(rascunho.estado.verbas));
     setModo(rascunho.estado.modo ?? modo);
     setIdRascunho(rascunho.id);
     setAvisoRascunho("Rascunho reaberto com os dados como estavam.");
@@ -1092,8 +1048,8 @@ export function FormCivel() {
         setErroEnvio("Este cálculo não possui um payload cível editável para revisão.");
         return;
       }
-      const consolidados = payload.encargos_consolidados ?? [];
-      if (consolidados.length > 1 || consolidados.some((e) => e.tipo === "juros" || e.valor_fixo || e.predecessores?.length)) {
+      const encargosHidratados = hidratarEncargosSentenca(payload.encargos_consolidados ?? []);
+      if (!encargosHidratados) {
         setErroEnvio("A revisão contém encargos consolidados que este formulário ainda não representa fielmente. Use o modo detalhado futuro; nenhum dado foi descartado.");
         return;
       }
@@ -1114,15 +1070,10 @@ export function FormCivel() {
       const indexadorDaVerba = payload.verbas.find((v) => v.correcao?.indexador)?.correcao?.indexador;
       if (indexadorDaVerba) setIndexador(indexadorDaVerba);
       setRevisaoDe(calculo.codigo);
-      const encargo = consolidados[0];
-      if (encargo) {
-        const componentes = encargo.componentes ?? [];
-        const base = componentes.includes("juros_individuais") ? "com_juros" : componentes.includes("principal_corrigido") ? "corrigido" : "principal";
-        setEncargoConsolidado({ ativo: true, tipo: encargo.tipo as "multa" | "honorarios", percentual: percentualParaTela(encargo.percentual), base });
-      } else {
-        setEncargoConsolidado({ ativo: false, tipo: "multa", percentual: "10", base: "corrigido" });
-      }
-      const detalhado = payload.verbas.some((v) => v.tipo === "percentual" || (v.regimes?.length ?? 0) > 0 || (v.parcelas?.length ?? 0) > 0);
+      setEncargosSentenca(encargosHidratados);
+      setJurosDesde(jurosDesdeDasVerbas(estadoHidratado.verbas));
+      // Multa e honorários por linha só existem no modo detalhado.
+      const detalhado = payload.verbas.some((v) => v.tipo === "percentual" || (v.regimes?.length ?? 0) > 0 || (v.parcelas?.length ?? 0) > 0 || v.multa?.aplicar || v.honorarios?.aplicar);
       setModo(detalhado ? "detalhado" : "simples");
       setAvisoRascunho(`Revisão de ${calculo.codigo}: o original será preservado.`);
     }).catch((e) => { if (ativo) setErroEnvio(mensagemErroAmigavel(e)); });
@@ -1190,7 +1141,9 @@ export function FormCivel() {
           correcaoIndexador: indexador,
           jurosAplicar: jurosEmTodas,
           jurosModalidade: referenciaJuros?.jurosModalidade ?? "taxa_legal",
+          jurosTaxa: referenciaJuros?.jurosTaxa ?? "",
           jurosBase: referenciaJuros?.jurosBase ?? "corrigido",
+          jurosInicio: jurosDesde.termo === "data_unica" ? jurosDesde.data : "",
         }),
       ];
     });
@@ -1209,47 +1162,52 @@ export function FormCivel() {
     return true;
   }
 
+  // No modo simples cada linha mostra uma única data. Ao ligar correção ou
+  // juros, uma verba que estava sem o encargo (ex.: revisão de cálculo antigo)
+  // pode ter o termo inicial vazio; herda a data visível da linha.
   function alternarCorrecao(ligado: boolean) {
-    setVerbas((atual) => aplicarEmTodas(atual, { correcaoAplicar: ligado }));
+    setVerbas((atual) =>
+      atual.map((v) => ({
+        ...v,
+        correcaoAplicar: ligado,
+        correcaoInicio: v.correcaoInicio || (ligado ? v.jurosInicio : ""),
+      })),
+    );
   }
 
   function alternarJuros(ligado: boolean) {
-    setVerbas((atual) =>
-      aplicarEmTodas(atual, {
+    setVerbas((atual) => {
+      const taxa = taxaDaVerba(atual.find((v) => v.jurosAplicar) ?? atual[0] ?? novaVerba());
+      return atual.map((v) => ({
+        ...v,
+        ...camposDaTaxa(taxa),
         jurosAplicar: ligado,
-        jurosModalidade: "taxa_legal",
-      }),
+        jurosInicio: v.jurosInicio || (ligado ? inicioJurosPara(v, jurosDesde) : ""),
+      }));
+    });
+  }
+
+  function alterarJurosDesde(parcial: Partial<EstadoJurosDesde>) {
+    const novo = { ...jurosDesde, ...parcial };
+    setJurosDesde(novo);
+    setVerbas((atual) =>
+      atual.map((v) => (v.jurosAplicar ? { ...v, jurosInicio: inicioJurosPara(v, novo) } : v)),
     );
+  }
+
+  function definirJurosTaxa(taxa: TaxaJuros) {
+    setVerbas((atual) => aplicarEmTodas(atual, camposDaTaxa(taxa)));
   }
 
   function definirJurosBase(base: string) {
     setVerbas((atual) => aplicarEmTodas(atual, { jurosBase: base }));
   }
 
-  function atualizarMulta(parcial: Partial<ConfigEncargoGeral>) {
-    setVerbas((atual) => {
-      const ref = atual.find((v) => v.multaAplicar);
-      return aplicarEncargoGeral(atual, "multa", {
-        aplicar: ref?.multaAplicar ?? false,
-        percentual: ref?.multaPercentual ?? "",
-        valorFixo: ref?.multaValorFixo ?? "",
-        base: ref?.multaBase ?? "corrigido",
-        ...parcial,
-      });
-    });
-  }
-
-  function atualizarHonorarios(parcial: Partial<ConfigEncargoGeral>) {
-    setVerbas((atual) => {
-      const ref = atual.find((v) => v.honorariosAplicar);
-      return aplicarEncargoGeral(atual, "honorarios", {
-        aplicar: ref?.honorariosAplicar ?? false,
-        percentual: ref?.honorariosPercentual ?? "",
-        valorFixo: ref?.honorariosValorFixo ?? "",
-        base: ref?.honorariosBase ?? "corrigido",
-        ...parcial,
-      });
-    });
+  function trocarModo(novo: ModoCalculo) {
+    // Ao voltar ao simples, o controle "Juros desde" reflete as datas que
+    // foram editadas linha a linha no detalhado.
+    if (novo === "simples") setJurosDesde(jurosDesdeDasVerbas(verbas));
+    setModo(novo);
   }
 
   function atualizarPagamento(id: string, parcial: Partial<EstadoPagamentoVerba>) {
@@ -1266,7 +1224,7 @@ export function FormCivel() {
         dataBaseCalculo,
         verbas,
         pagamentos,
-        encargoConsolidado,
+        encargosSentenca,
         revisaoDe,
       );
       const criado = await api.criarCalculo(payload);
@@ -1281,24 +1239,25 @@ export function FormCivel() {
   function gerarCalculo() {
     setErros([]);
     setErroEnvio(null);
-    const lista = errosValidacao(identificacao, dataBaseCalculo, verbas, pagamentos);
-    const percentualConsolidado = Number(encargoConsolidado.percentual.replace(",", "."));
-    if (encargoConsolidado.ativo && (!Number.isFinite(percentualConsolidado) || percentualConsolidado <= 0)) {
-      lista.push("Informe um percentual positivo para o encargo consolidado.");
-    }
+    const lista = errosValidacao(
+      identificacao, dataBaseCalculo, verbas, pagamentos, encargosSentenca, jurosDesde,
+    );
     setErros(lista);
     if (lista.length > 0) return;
-    const avisos = criteriosDesativados(verbas);
-    if (avisos.length > 0) {
-      setConfirmacaoCriterios(avisos);
-      return;
-    }
-    void enviarCalculo();
+    setConferencia(
+      montarConferencia({
+        dataFinal: dataBaseCalculo,
+        indexador: INDEXADORES_CORRECAO.find((op) => op.valor === indexador)?.rotulo ?? indexador,
+        verbas,
+        pagamentos,
+        encargos: encargosSentenca,
+      }),
+    );
   }
 
   function salvarRascunhoAtual() {
     const salvo = salvarRascunho(
-      { identificacao, dataBaseCalculo, indexador, verbas, pagamentos, modo, encargoConsolidado },
+      { identificacao, dataBaseCalculo, indexador, verbas, pagamentos, modo, encargosSentenca, jurosDesde },
       idRascunho,
     );
     setIdRascunho(salvo.id);
@@ -1320,7 +1279,7 @@ export function FormCivel() {
             <h1 className="mt-2 text-[28px] leading-tight text-ink-950">Novo cálculo</h1>
             <p className="mt-2 max-w-[56ch] text-[14px] leading-relaxed text-ink-500">
               {simples
-                ? "Preencha como em uma planilha: descrição, data e valor. A correção e os juros são aplicados automaticamente até a data final."
+                ? "Preencha como em uma planilha: descrição, data e valor. Depois diga, como na sentença, desde quando correm os juros e quais honorários e multa se aplicam."
                 : "Modo detalhado: cada lançamento decide suas próprias datas, correção, juros, multa e honorários."}
             </p>
           </div>
@@ -1334,7 +1293,7 @@ export function FormCivel() {
               variant={simples ? "primary" : "outline"}
               size="sm"
               aria-pressed={simples}
-              onClick={() => setModo("simples")}
+              onClick={() => trocarModo("simples")}
             >
               Simples
             </Button>
@@ -1343,7 +1302,7 @@ export function FormCivel() {
               variant={!simples ? "primary" : "outline"}
               size="sm"
               aria-pressed={!simples}
-              onClick={() => setModo("detalhado")}
+              onClick={() => trocarModo("detalhado")}
             >
               Detalhado
             </Button>
@@ -1468,7 +1427,8 @@ export function FormCivel() {
                 onAtualizar={atualizarVerba}
                 onAdicionar={incluirVerba}
                 onRemover={removerVerba}
-                onEditarDetalhado={() => setModo("detalhado")}
+                onEditarDetalhado={() => trocarModo("detalhado")}
+                jurosDataUnica={jurosDesde.termo === "data_unica"}
               />
             ) : (
               <div className="mt-5 border border-line bg-panel">
@@ -1498,20 +1458,19 @@ export function FormCivel() {
 
             {simples ? (
               <p className="mt-3 max-w-[70ch] text-xs leading-relaxed text-ink-500">
-                A data de cada valor define o início da correção e dos juros. A
-                correção usa a Tabela Prática TJSP e os juros usam a Taxa Legal
-                (BCB SGS 29543), automáticos até a data final — sem fatores ou
-                percentuais para digitar. Detalhes por lançamento (regras de
-                atualização, composição do total, verbas derivadas) ficam no modo
-                detalhado.
+                A data de cada valor é o início da correção (Tabela Prática TJSP).
+                Os juros começam nessa mesma data ou numa data única para todos —
+                escolha em “Juros desde”, logo abaixo. Detalhes por lançamento
+                (regras de atualização, composição do total, verbas derivadas)
+                ficam no modo detalhado.
               </p>
             ) : (
               <p className="mt-3 text-xs text-ink-500">
                 Cada lançamento decide sozinho o que atualiza: marque Correção
                 monetária e/ou Juros e informe a data de cada um — os dois podem
-                ficar desligados. A correção usa a Tabela Prática TJSP e os juros
-                usam a Taxa Legal (BCB SGS 29543), automáticos até a data final —
-                sem fatores ou percentuais para digitar.
+                ficar desligados. A correção usa a Tabela Prática TJSP. Os juros
+                usam a taxa legal de cada época (12% a.a. até 29/08/2024 e Taxa
+                Legal depois) ou 1% ao mês, quando a decisão fixar.
               </p>
             )}
           </section>
@@ -1519,45 +1478,38 @@ export function FormCivel() {
           {simples ? (
             <section className="border-t border-line pt-6" aria-labelledby="sec-encargos">
               <div>
-                <p className="section-kicker">Encargos</p>
+                <p className="section-kicker">Atualização dos valores</p>
                 <h2 id="sec-encargos" className="section-title mt-1">
-                  Correção, juros, multa e honorários
+                  Correção e juros
                 </h2>
               </div>
               <SecaoEncargos
                 verbas={verbas}
+                jurosDesde={jurosDesde}
                 onAlternarCorrecao={alternarCorrecao}
                 onAlternarJuros={alternarJuros}
+                onJurosDesde={alterarJurosDesde}
+                onJurosTaxa={definirJurosTaxa}
                 onJurosBase={definirJurosBase}
-                onMulta={atualizarMulta}
-                onHonorarios={atualizarHonorarios}
               />
-              <div className="mt-4 rounded-xl border border-line bg-ink-50/60 p-4">
-                <Switch
-                  id="encargo-consolidado"
-                  label="Encargo único sobre o total"
-                  description="Calcula multa ou honorários uma única vez, depois de somar as verbas selecionadas."
-                  checked={encargoConsolidado.ativo}
-                  onChange={(ativo) => setEncargoConsolidado((atual) => ({ ...atual, ativo }))}
-                  disabled={verbas.length === 0}
-                />
-                {encargoConsolidado.ativo ? (
-                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                    <Select id="encargo-consolidado-tipo" label="Tipo" value={encargoConsolidado.tipo} onChange={(e) => setEncargoConsolidado((atual) => ({ ...atual, tipo: e.target.value as EstadoEncargoConsolidado["tipo"] }))}>
-                      <option value="multa">Multa</option>
-                      <option value="honorarios">Honorários</option>
-                    </Select>
-                    <Input id="encargo-consolidado-percentual" label="Percentual (%)" inputMode="decimal" value={encargoConsolidado.percentual} onChange={(e) => setEncargoConsolidado((atual) => ({ ...atual, percentual: e.target.value }))} />
-                    <Select id="encargo-consolidado-base" label="Base" value={encargoConsolidado.base} onChange={(e) => setEncargoConsolidado((atual) => ({ ...atual, base: e.target.value as EstadoEncargoConsolidado["base"] }))}>
-                      <option value="principal">Valores originais</option>
-                      <option value="corrigido">Valores corrigidos</option>
-                      <option value="com_juros">Corrigidos + juros</option>
-                    </Select>
-                  </div>
-                ) : null}
-              </div>
             </section>
           ) : null}
+
+          <section className="border-t border-line pt-6" aria-labelledby="sec-sentenca">
+            <div>
+              <p className="section-kicker">Encargos</p>
+              <h2 id="sec-sentenca" className="section-title mt-1">
+                Honorários e multa
+              </h2>
+            </div>
+            <div className="mt-4">
+              <SecaoEncargosSentenca
+                valor={encargosSentenca}
+                onChange={setEncargosSentenca}
+                disabled={verbas.length === 0}
+              />
+            </div>
+          </section>
 
           <SecaoPagamentos
             pagamentos={pagamentos}
@@ -1583,42 +1535,17 @@ export function FormCivel() {
             cálculo” abre a memória com tabela, PDF e XLSX.
           </span>
         </div>
-        {confirmacaoCriterios ? (
-          <div className="border-t border-line bg-amber-50 px-6 py-5 lg:px-8" role="alertdialog" aria-labelledby="confirmacao-criterios-titulo">
-            <p id="confirmacao-criterios-titulo" className="font-semibold text-amber-950">
-              Confirmar critérios desativados
-            </p>
-            <p className="mt-1 text-sm text-amber-900">
-              As configurações abaixo não serão aplicadas. Deseja mantê-las?
-            </p>
-            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-amber-950">
-              {confirmacaoCriterios.map((aviso) => (
-                <li key={`${aviso.verba}-${aviso.criterio}`}>
-                  {aviso.verba}: {aviso.criterio} {aviso.criterio === "juros" ? "desativados" : "desativada"}.
-                </li>
-              ))}
-            </ul>
-            <div className="mt-4 flex flex-wrap gap-3">
-              <Button
-                type="button"
-                onClick={() => {
-                  setConfirmacaoCriterios(null);
-                  void enviarCalculo();
-                }}
-                disabled={enviando}
-              >
-                Manter configurações e calcular
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setConfirmacaoCriterios(null)}
-                disabled={enviando}
-              >
-                Voltar e revisar
-              </Button>
-            </div>
-          </div>
+        {conferencia ? (
+          <PainelConferencia
+            conferencia={conferencia}
+            dataFinal={formatarDataBR(dataBaseCalculo)}
+            enviando={enviando}
+            onConfirmar={() => {
+              setConferencia(null);
+              void enviarCalculo();
+            }}
+            onVoltar={() => setConferencia(null)}
+          />
         ) : null}
       </div>
     </div>

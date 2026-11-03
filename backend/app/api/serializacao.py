@@ -10,6 +10,7 @@ from app.core.money import round_brl, to_decimal
 from app.engine.calculo import BaseUtilizada, ResultadoCalculo
 from app.engine.correcao import ResultadoCorrecao
 from app.engine.encargos import Pagamento, ResultadoEncargo
+from app.engine.imputacao import ImputacaoPagamento
 from app.engine.juros import ResultadoJuros
 from app.engine.parcela import ResultadoParcela
 
@@ -425,5 +426,27 @@ def serializar_calculo(
         "encargos_consolidados": [],
         "bases": [_serializar_base(b) for b in resultado.bases],
         "avisos": list(resultado.avisos),
+        "imputacao_pagamentos": [_serializar_imputacao(i) for i in resultado.imputacoes],
         "payload": payload or {},
+    }
+
+
+def _serializar_imputacao(imputacao: ImputacaoPagamento) -> dict:
+    return {
+        "data": imputacao.data.isoformat(),
+        "valor": str(round_brl(imputacao.valor)),
+        "descricao": imputacao.descricao,
+        "valor_atualizado": str(round_brl(imputacao.valor_atualizado)),
+        "credito": str(round_brl(imputacao.credito)),
+        "credito_atualizado": str(round_brl(imputacao.credito_atualizado)),
+        "encargos": "0.00",
+        "itens": [
+            {
+                "parcela": item.parcela,
+                "fator": str(item.razao.quantize(Decimal("0.000001"))),
+                "juros": str(item.juros),
+                "principal": str(item.principal),
+            }
+            for item in imputacao.itens
+        ],
     }

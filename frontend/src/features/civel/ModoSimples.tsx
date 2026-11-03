@@ -18,6 +18,8 @@ interface ModoSimplesProps {
   onAdicionar: () => void;
   onRemover: (id: string) => boolean;
   onEditarDetalhado: () => void;
+  /** Juros com data única: a data da linha passa a mover só a correção. */
+  jurosDataUnica?: boolean;
 }
 
 /**
@@ -30,6 +32,7 @@ export function ModoSimples({
   onAdicionar,
   onRemover,
   onEditarDetalhado,
+  jurosDataUnica = false,
 }: ModoSimplesProps) {
   const [editando, setEditando] = useState<Set<string>>(() => new Set());
   const [confirmando, setConfirmando] = useState<string | null>(null);
@@ -74,6 +77,7 @@ export function ModoSimples({
   }
 
   function dataDaLinha(verba: EstadoVerba): string {
+    if (jurosDataUnica) return verba.correcaoInicio;
     return verba.correcaoInicio || verba.jurosInicio || "";
   }
 
@@ -204,10 +208,12 @@ export function ModoSimples({
                         aria-label={`Data do lançamento ${indice + 1}`}
                         value={dataDaLinha(verba)}
                         onChange={(e) =>
-                          onAtualizar(verba.id, {
-                            correcaoInicio: e.target.value,
-                            jurosInicio: e.target.value,
-                          })
+                          onAtualizar(
+                            verba.id,
+                            jurosDataUnica
+                              ? { correcaoInicio: e.target.value }
+                              : { correcaoInicio: e.target.value, jurosInicio: e.target.value },
+                          )
                         }
                       />
                     </div>

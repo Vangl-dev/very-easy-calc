@@ -187,6 +187,41 @@ def _planilha_resumo(wb: Workbook, memoria: dict) -> None:
             ws.cell(ws.max_row, 2).number_format = 'R$ #,##0.00'
             ws.cell(ws.max_row, 2).alignment = ALINHAMENTO_DIR
 
+    imputacoes = memoria.get("imputacao_pagamentos") or []
+    if imputacoes:
+        ws.append([])
+        ws.append(["Abatimento na data do pagamento (art. 354 do CC: juros antes do principal)"])
+        ws.cell(ws.max_row, 1).font = SECAO_FONT
+        ws.append([
+            "Data", "Valor pago", "Parcela", "Fator até a data final",
+            "Quitou juros", "Quitou principal", "Descrição",
+        ])
+        _cabecalho(ws[ws.max_row])
+        for imputacao in imputacoes:
+            for item in imputacao.get("itens") or []:
+                ws.append([
+                    imputacao.get("data") or "",
+                    _moeda(imputacao.get("valor")),
+                    item.get("parcela"),
+                    float(item["fator"]) if item.get("fator") else None,
+                    _moeda(item.get("juros")),
+                    _moeda(item.get("principal")),
+                    imputacao.get("descricao") or "",
+                ])
+                for col in range(1, 8):
+                    ws.cell(ws.max_row, col).border = BORDER
+                    ws.cell(ws.max_row, col).alignment = ALINHAMENTO
+                for col in (2, 5, 6):
+                    ws.cell(ws.max_row, col).number_format = 'R$ #,##0.00'
+                    ws.cell(ws.max_row, col).alignment = ALINHAMENTO_DIR
+                ws.cell(ws.max_row, 4).number_format = '0.000000'
+            if _moeda(imputacao.get("encargos")):
+                ws.append([
+                    imputacao.get("data") or "", None, "multa/honorários", None,
+                    None, _moeda(imputacao.get("encargos")), imputacao.get("descricao") or "",
+                ])
+                ws.cell(ws.max_row, 6).number_format = 'R$ #,##0.00'
+
     consolidados = memoria.get("encargos_consolidados") or []
     if consolidados:
         ws.append([])

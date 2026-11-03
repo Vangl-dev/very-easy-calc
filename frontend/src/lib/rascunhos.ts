@@ -3,6 +3,10 @@ import type {
   EstadoPagamentoVerba,
   EstadoVerba,
 } from "../features/civel/estadoVerba";
+import type {
+  EstadoEncargosSentenca,
+  EstadoJurosDesde,
+} from "../features/civel/criteriosSentenca";
 
 /** Estado do formulário Cível salvo para continuar depois (localStorage). */
 export interface RascunhoCivel {
@@ -17,6 +21,9 @@ export interface RascunhoCivel {
     /** Opcionais — rascunhos antigos continuam válidos. */
     pagamentos?: EstadoPagamentoVerba[];
     modo?: "simples" | "detalhado";
+    encargosSentenca?: EstadoEncargosSentenca;
+    jurosDesde?: EstadoJurosDesde;
+    /** Legado: o antigo "encargo único sobre o total". */
     encargoConsolidado?: {
       ativo: boolean;
       tipo: "multa" | "honorarios";

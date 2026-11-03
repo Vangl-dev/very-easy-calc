@@ -196,6 +196,8 @@ export interface CalculoCivelPayload {
   honorarios?: ConfigEncargoPayload | null;
   pagamentos?: PagamentoPayload[];
   encargos_consolidados?: EncargoConsolidadoPayload[];
+  /** "data_pagamento": abate na data, juros antes do principal (art. 354 CC). */
+  criterio_pagamentos?: "nominal" | "data_pagamento";
 }
 
 export interface CalculoAlimentosPayload {

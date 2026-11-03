@@ -182,6 +182,9 @@ class CalculoRequest(BaseModel):
     honorarios: ConfigEncargoSchema | None = None
     encargos_consolidados: list[EncargoConsolidadoSchema] = []
     pagamentos: list[PagamentoSchema] = []
+    # "nominal": cálculos antigos (valor pago deduzido do total, sem atualizar).
+    # "data_pagamento": abate na data do pagamento, juros antes do principal.
+    criterio_pagamentos: Literal["nominal", "data_pagamento"] = "nominal"
 
     @field_validator("data_base")
     @classmethod

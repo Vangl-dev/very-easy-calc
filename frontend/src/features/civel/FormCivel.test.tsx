@@ -106,7 +106,7 @@ function botao(nome: RegExp) {
  * perder as assertions originais sobre o payload enviado. */
 function confirmarCriteriosSeNecessario() {
   const confirmar = screen.queryByRole("button", {
-    name: "Manter configurações e calcular",
+    name: "Está correto, gerar cálculo",
   });
   if (confirmar) fireEvent.click(confirmar);
 }
@@ -656,6 +656,7 @@ describe("regras de atualização (regimes)", () => {
     });
 
     fireEvent.click(botao(/gerar cálculo/i));
+    confirmarCriteriosSeNecessario();
     await waitFor(() => {
       expect(screen.getByText(/resultado vec-2026-000010/i)).toBeTruthy();
     });
@@ -1045,7 +1046,7 @@ describe("estadoVerba — encargos de multa e honorários", () => {
 });
 
 describe("FormCivel — modo simples (padrão)", () => {
-  it("pede confirmação antes de calcular com juros desativados e respeita a escolha", async () => {
+  it("mostra a conferência em português antes de calcular e respeita a escolha", async () => {
     renderizar(URL_SIMPLES);
     digitar(/^nome \/ descrição/i, "Custas sem juros");
     digitar(/^atualizar cálculo até/i, "2026-09-30");
@@ -1053,21 +1054,27 @@ describe("FormCivel — modo simples (padrão)", () => {
 
     fireEvent.click(botao(/gerar cálculo/i));
     expect(screen.getByRole("alertdialog")).toBeTruthy();
-    expect(screen.getByText(/custas processuais: juros desativados/i)).toBeTruthy();
+    expect(screen.getByText(/confira com a decisão antes de gerar/i)).toBeTruthy();
+    expect(
+      screen.getByText(
+        /1\. Custas processuais — R\$\s?100,00 em 10\/01\/2025: correção pela Tabela Prática TJSP de 01\/2025 até 09\/2026; sem juros\./,
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText(/custas processuais: sem juros\./i)).toBeTruthy();
     expect(api.criarCalculo).not.toHaveBeenCalled();
 
-    fireEvent.click(botao(/voltar e revisar/i));
+    fireEvent.click(botao(/voltar e corrigir/i));
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(screen.getByDisplayValue("100,00")).toBeTruthy();
 
     fireEvent.click(botao(/gerar cálculo/i));
-    fireEvent.click(botao(/manter configurações e calcular/i));
+    fireEvent.click(botao(/está correto, gerar cálculo/i));
     await waitFor(() => expect(api.criarCalculo).toHaveBeenCalledTimes(1));
     const payload = vi.mocked(api.criarCalculo).mock.calls[0][0] as CalculoCivelPayload;
     expect(payload.verbas[0].juros?.aplicar).toBe(false);
+    expect(payload.criterio_pagamentos).toBe("data_pagamento");
   });
-
-  it("confirma também correção desativada e não avisa quando todos os critérios estão ativos", async () => {
+  it("aponta correção desativada e não mostra alertas quando tudo está ativo", async () => {
     renderizar(URL_SIMPLES);
     digitar(/^nome \/ descrição/i, "Critérios ativos");
     digitar(/^atualizar cálculo até/i, "2026-09-30");
@@ -1075,16 +1082,63 @@ describe("FormCivel — modo simples (padrão)", () => {
 
     fireEvent.click(screen.getByRole("switch", { name: /^correção monetária$/i }));
     fireEvent.click(botao(/gerar cálculo/i));
-    expect(screen.getByText(/principal: correção monetária desativada/i)).toBeTruthy();
-    fireEvent.click(botao(/voltar e revisar/i));
+    expect(screen.getByText(/principal: sem correção monetária\./i)).toBeTruthy();
+    fireEvent.click(botao(/voltar e corrigir/i));
 
     fireEvent.click(screen.getByRole("switch", { name: /^correção monetária$/i }));
     fireEvent.click(screen.getByRole("switch", { name: /^juros$/i }));
     fireEvent.click(botao(/gerar cálculo/i));
+    expect(screen.queryByText(/pontos de atenção/i)).toBeNull();
+    fireEvent.click(botao(/está correto, gerar cálculo/i));
     await waitFor(() => expect(api.criarCalculo).toHaveBeenCalledTimes(1));
-    expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 
+  it("juros de 1% ao mês desde o trânsito em julgado, para todos os valores", async () => {
+    renderizar(URL_SIMPLES);
+    digitar(/^nome \/ descrição/i, "Partilha");
+    digitar(/^atualizar cálculo até/i, "2026-10-31");
+    preencherLinhaSimples({ descricao: "Entrada", data: "2020-10-19", valor: "36800,00" });
+    fireEvent.click(botao(/\+ adicionar valor/i));
+    preencherLinhaSimples({ descricao: "Parcela", data: "2021-03-10", valor: "1200,00", indice: 1 });
+
+    fireEvent.click(screen.getByRole("switch", { name: /^juros$/i }));
+    fireEvent.change(screen.getByLabelText(/^juros desde/i), { target: { value: "data_unica" } });
+    fireEvent.change(screen.getByLabelText(/^data de início dos juros/i), {
+      target: { value: "2024-03-26" },
+    });
+    fireEvent.change(screen.getByLabelText(/^taxa de juros/i), { target: { value: "um_por_cento" } });
+    // A data da linha continua sendo só o início da correção.
+    digitar(/^data do lançamento 1$/i, "2020-10-20");
+
+    fireEvent.click(botao(/gerar cálculo/i));
+    expect(
+      screen.getByText(/1\. Entrada .*juros de 1% ao mês de 26\/03\/2024 até 31\/10\/2026, sobre o valor corrigido\./),
+    ).toBeTruthy();
+    fireEvent.click(botao(/está correto, gerar cálculo/i));
+    await waitFor(() => expect(api.criarCalculo).toHaveBeenCalled());
+
+    const payload = vi.mocked(api.criarCalculo).mock.calls[0][0] as CalculoCivelPayload;
+    for (const verba of payload.verbas) {
+      expect(verba.juros).toMatchObject({
+        aplicar: true, modalidade: "fixa", taxa: "0.01", unidade: "mensal", inicio: "2024-03-26",
+      });
+    }
+    expect(payload.verbas[0].correcao?.termo_inicial).toBe("2020-10-20");
+    expect(payload.verbas[1].correcao?.termo_inicial).toBe("2021-03-10");
+  });
+
+  it("data única dos juros vazia é apontada uma vez só", () => {
+    renderizar(URL_SIMPLES);
+    digitar(/^nome \/ descrição/i, "Sem data");
+    digitar(/^atualizar cálculo até/i, "2026-10-31");
+    preencherLinhaSimples({ descricao: "Entrada", data: "2020-10-19", valor: "36800,00" });
+    fireEvent.click(screen.getByRole("switch", { name: /^juros$/i }));
+    fireEvent.change(screen.getByLabelText(/^juros desde/i), { target: { value: "data_unica" } });
+    fireEvent.click(botao(/gerar cálculo/i));
+
+    expect(screen.getByText(/juros: informe a data de início dos juros/i)).toBeTruthy();
+    expect(screen.queryByText(/lançamento 1: informe a data de início dos juros/i)).toBeNull();
+  });
   it("reabre cálculo salvo como revisão, preservando pagamento e encargo consolidado", async () => {
     vi.mocked(api.obterCalculo).mockResolvedValue({
       codigo: "VEC-2026-000001",
@@ -1109,8 +1163,10 @@ describe("FormCivel — modo simples (padrão)", () => {
     await waitFor(() => expect(screen.getByDisplayValue("Cálculo recuperado")).toBeTruthy());
     expect(screen.getByDisplayValue("2025-07-29")).toBeTruthy();
     expect(screen.getByDisplayValue("penhoras online")).toBeTruthy();
-    expect(screen.getByRole("switch", { name: /encargo único sobre o total/i })
+    // O antigo "encargo único" de multa volta como multa do art. 523, mesma base.
+    expect(screen.getByRole("switch", { name: /cumprimento de sentença/i })
       .getAttribute("aria-checked")).toBe("true");
+    expect((screen.getByLabelText(/^calcular sobre/i) as HTMLSelectElement).value).toBe("corrigido");
 
     fireEvent.click(botao(/gerar cálculo/i));
     confirmarCriteriosSeNecessario();
@@ -1119,7 +1175,82 @@ describe("FormCivel — modo simples (padrão)", () => {
     expect(payload.revisao_de).toBe("VEC-2026-000001");
     expect(payload.verbas[0].juros?.aplicar).toBe(false);
     expect(payload.verbas[0].pagamentos).toHaveLength(1);
-    expect(payload.encargos_consolidados).toHaveLength(1);
+    expect(payload.encargos_consolidados).toEqual([
+      expect.objectContaining({
+        tipo: "multa", percentual: "0.1", componentes: ["principal_corrigido"],
+      }),
+    ]);
+  });
+
+  it("reabre revisão com honorários da sentença e art. 523 como foram salvos", async () => {
+    vi.mocked(api.obterCalculo).mockResolvedValue({
+      codigo: "VEC-2026-000002",
+      payload: {
+        tipo: "parcelas", titulo: "Com encargos", processo: "", parte: "",
+        data_base: "2026-09-30", pagamentos: [], correcao: { aplicar: false },
+        juros: { aplicar: false }, multa: { aplicar: false }, honorarios: { aplicar: false },
+        verbas: [{
+          id: "v1", nome: "Entrada", descricao: "Entrada", valor: "36800.00",
+          data_base: "2020-10-19", entra_no_total: true,
+          correcao: { aplicar: true, indexador: "tjsp_tabela_pratica", termo_inicial: "2020-10-19" },
+          juros: { aplicar: true, modalidade: "fixa", taxa: "0.01", unidade: "mensal", base: "corrigido", inicio: "2024-03-26" },
+          multa: { aplicar: false }, honorarios: { aplicar: false },
+          pagamentos: [], parcelas: [], regimes: [],
+        }],
+        encargos_consolidados: [
+          { id: "honorarios_sentenca", tipo: "honorarios", ordem: 1, componentes: ["principal_corrigido", "juros_individuais"], percentual: "0.1" },
+          { id: "honorarios_523", tipo: "honorarios", ordem: 3, componentes: ["principal_corrigido", "juros_individuais"], predecessores: [], percentual: "0.1" },
+        ],
+      },
+    } as unknown as CalculoCriado);
+    renderizar("/novo-calculo?tipo=parcelas&revisar=VEC-2026-000002");
+
+    await waitFor(() => expect(screen.getByDisplayValue("Com encargos")).toBeTruthy());
+    expect((screen.getByLabelText(/^juros desde/i) as HTMLSelectElement).value).toBe("data_unica");
+    expect(screen.getByDisplayValue("2024-03-26")).toBeTruthy();
+    expect((screen.getByLabelText(/^taxa de juros/i) as HTMLSelectElement).value).toBe("um_por_cento");
+    expect((screen.getByLabelText(/^multa do art\. 523/i) as HTMLInputElement).value).toBe("");
+    expect(
+      (screen.getByRole("checkbox", { name: /incluir os honorários da sentença/i }) as HTMLInputElement).checked,
+    ).toBe(false);
+
+    fireEvent.click(botao(/gerar cálculo/i));
+    confirmarCriteriosSeNecessario();
+    await waitFor(() => expect(api.criarCalculo).toHaveBeenCalled());
+    const payload = vi.mocked(api.criarCalculo).mock.calls[0][0] as CalculoCivelPayload;
+    expect(payload.encargos_consolidados?.map((e) => e.id)).toEqual(["honorarios_sentenca", "honorarios_523"]);
+    expect(payload.verbas[0].juros).toMatchObject({ modalidade: "fixa", taxa: "0.01", inicio: "2024-03-26" });
+  });
+
+  it("na revisão, ligar juros numa verba que estava sem juros usa a data da linha", async () => {
+    vi.mocked(api.obterCalculo).mockResolvedValue({
+      codigo: "VEC-2026-000001",
+      payload: {
+        tipo: "parcelas", titulo: "Revisão com juros", processo: "123", parte: "",
+        data_base: "2026-09-30", pagamentos: [], correcao: { aplicar: false },
+        juros: { aplicar: false }, multa: { aplicar: false }, honorarios: { aplicar: false },
+        verbas: [{
+          id: "v1", nome: "parcelas fls. 3", descricao: "parcelas fls. 3", valor: "14689.70",
+          data_base: "2022-02-06", entra_no_total: true,
+          correcao: { aplicar: true, indexador: "tjsp_tabela_pratica", termo_inicial: "2022-02-06" },
+          juros: { aplicar: false, modalidade: "taxa_legal", base: "corrigido" },
+          multa: { aplicar: false }, honorarios: { aplicar: false },
+          pagamentos: [], parcelas: [], regimes: [],
+        }],
+      },
+    } as unknown as CalculoCriado);
+    renderizar("/novo-calculo?tipo=parcelas&revisar=VEC-2026-000001");
+
+    await waitFor(() => expect(screen.getByDisplayValue("Revisão com juros")).toBeTruthy());
+    fireEvent.click(screen.getByRole("switch", { name: /^juros$/i }));
+    fireEvent.click(botao(/gerar cálculo/i));
+
+    expect(screen.queryByText(/informe a data de início dos juros/i)).toBeNull();
+    confirmarCriteriosSeNecessario();
+    await waitFor(() => expect(api.criarCalculo).toHaveBeenCalled());
+    const payload = vi.mocked(api.criarCalculo).mock.calls[0][0] as CalculoCivelPayload;
+    expect(payload.verbas[0].juros?.aplicar).toBe(true);
+    expect(payload.verbas[0].juros?.inicio).toBe("2022-02-06");
   });
 
   function preencherLinhaSimples(dados: {
@@ -1151,12 +1282,12 @@ describe("FormCivel — modo simples (padrão)", () => {
 
     expect(screen.getByRole("switch", { name: /correção monetária/i })).toBeTruthy();
     expect(screen.getByRole("switch", { name: /^juros$/i })).toBeTruthy();
-    expect(screen.getByRole("switch", { name: /^multa$/i })).toBeTruthy();
-    expect(screen.getByRole("switch", { name: /^honorários$/i })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: /^honorários da sentença$/i })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: /cumprimento de sentença \(art\. 523/i })).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: /^multa$/i })).toBeNull();
     expect(screen.getByText(/pagamentos e abatimentos/i)).toBeTruthy();
   });
-
-  it("preenche a linha, liga multa percentual e honorários fixos e envia o payload", async () => {
+  it("honorários da sentença e art. 523 vão como encargos sobre o total, em ordem", async () => {
     renderizar(URL_SIMPLES);
     digitar(/^nome \/ descrição/i, "Caso com encargos");
     digitar(/^atualizar cálculo até/i, "2026-09-30");
@@ -1166,44 +1297,48 @@ describe("FormCivel — modo simples (padrão)", () => {
       valor: "44000,00",
     });
 
-    fireEvent.click(screen.getByRole("switch", { name: /^multa$/i }));
-    digitar(/^multa \(%\)$/i, "10");
-
-    fireEvent.click(screen.getByRole("switch", { name: /^honorários$/i }));
-    digitar(/^honorários \(valor fixo\)$/i, "500,00");
+    fireEvent.click(screen.getByRole("switch", { name: /^honorários da sentença$/i }));
+    fireEvent.click(screen.getByRole("switch", { name: /cumprimento de sentença/i }));
 
     fireEvent.click(botao(/\+ adicionar pagamento/i));
     digitar(/^data\*?$/i, "2026-01-15", 1);
     digitar(/^valor\*?$/i, "1000,00", 1);
 
     fireEvent.click(botao(/gerar cálculo/i));
-    confirmarCriteriosSeNecessario();
+    expect(
+      screen.getByText(/honorários da sentença: 10% sobre o débito atualizado \(valor corrigido \+ juros\)\./i),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/art\. 523, §1º, do CPC: multa de 10% e honorários de 10% sobre o débito atualizado \(valor corrigido \+ juros\) somado aos honorários da sentença/i),
+    ).toBeTruthy();
+    expect(screen.getByText(/R\$\s?1\.000,00 em 15\/01\/2026: abatido nessa data/)).toBeTruthy();
+    fireEvent.click(botao(/está correto, gerar cálculo/i));
     await waitFor(() => {
       expect(screen.getByText(/resultado VEC-2026-000010/i)).toBeTruthy();
     });
 
     const payload = vi.mocked(api.criarCalculo).mock
       .calls[0][0] as CalculoCivelPayload;
-    expect(payload.verbas).toHaveLength(1);
     const [verba] = payload.verbas;
-    expect(verba.descricao).toBe("Valor da causa");
-    expect(verba.nome).toBe("Valor da causa");
-    expect(verba.correcao?.aplicar).toBe(true);
-    expect(verba.correcao?.termo_inicial).toBe("2022-08-30");
-    expect(verba.juros?.aplicar).toBe(false);
-    expect(verba.multa?.aplicar).toBe(true);
-    expect(verba.multa?.percentual).toBe("0.1");
-    expect(verba.multa?.valor_fixo).toBeNull();
-    expect(verba.honorarios?.aplicar).toBe(true);
-    expect(verba.honorarios?.valor_fixo).toBe("500,00");
-    expect(verba.honorarios?.percentual).toBeNull();
+    expect(verba.multa?.aplicar).toBe(false);
+    expect(verba.honorarios?.aplicar).toBe(false);
     expect(verba.pagamentos).toHaveLength(1);
-    expect(verba.pagamentos?.[0]).toMatchObject({
-      data: "2026-01-15",
-      valor: "1000,00",
-    });
+    expect(payload.criterio_pagamentos).toBe("data_pagamento");
+    expect(payload.encargos_consolidados).toEqual([
+      expect.objectContaining({
+        id: "honorarios_sentenca", tipo: "honorarios", ordem: 1, percentual: "0.1",
+        componentes: ["principal_corrigido", "juros_individuais"],
+      }),
+      expect.objectContaining({
+        id: "multa_523", tipo: "multa", ordem: 2, percentual: "0.1",
+        predecessores: ["honorarios_sentenca"],
+      }),
+      expect.objectContaining({
+        id: "honorarios_523", tipo: "honorarios", ordem: 3, percentual: "0.1",
+        predecessores: ["honorarios_sentenca"],
+      }),
+    ]);
   });
-
   it("desligar a correção global desliga em todas as verbas", async () => {
     renderizar(URL_SIMPLES);
     digitar(/^nome \/ descrição/i, "Sem correção");
@@ -1281,6 +1416,7 @@ describe("FormCivel — modo simples (padrão)", () => {
       descricao: "Segunda verba", data: "2023-01-01", valor: "500,00", indice: 1,
     });
     fireEvent.click(botao(/gerar cálculo/i));
+    confirmarCriteriosSeNecessario();
 
     await waitFor(() => expect(screen.getByText(/resultado VEC-2026-000010/i)).toBeTruthy());
     const payload = vi.mocked(api.criarCalculo).mock.calls[0][0] as CalculoCivelPayload;
@@ -1288,53 +1424,17 @@ describe("FormCivel — modo simples (padrão)", () => {
     expect(payload.verbas[1].juros?.inicio).toBe("2023-01-01");
   });
 
-  it("multa em valor fixo entra uma única vez, no primeiro valor do total", async () => {
+  it("art. 523 ligado sem nenhum percentual exige preenchimento", () => {
     renderizar(URL_SIMPLES);
-    digitar(/^nome \/ descrição/i, "Duas linhas");
-    digitar(/^atualizar cálculo até/i, "2026-09-30");
-    preencherLinhaSimples({
-      descricao: "Principal",
-      data: "2022-08-30",
-      valor: "1000,00",
-    });
-
-    fireEvent.click(botao(/\+ adicionar valor/i));
-    preencherLinhaSimples({
-      descricao: "Juros de mora",
-      data: "2023-01-01",
-      valor: "500,00",
-      indice: 1,
-    });
-
-    fireEvent.click(screen.getByRole("switch", { name: /^multa$/i }));
-    digitar(/^multa \(valor fixo\)$/i, "500,00");
-
-    expect(screen.getByText(/valor fixo lançado uma única vez/i)).toBeTruthy();
-
-    fireEvent.click(botao(/gerar cálculo/i));
-    confirmarCriteriosSeNecessario();
-    await waitFor(() => {
-      expect(screen.getByText(/resultado VEC-2026-000010/i)).toBeTruthy();
-    });
-
-    const payload = vi.mocked(api.criarCalculo).mock
-      .calls[0][0] as CalculoCivelPayload;
-    expect(payload.verbas[0].multa?.aplicar).toBe(true);
-    expect(payload.verbas[0].multa?.valor_fixo).toBe("500,00");
-    expect(payload.verbas[0].multa?.percentual).toBeNull();
-    expect(payload.verbas[1].multa?.aplicar).toBe(false);
-  });
-
-  it("multa ligada sem percentual nem fixo exige preenchimento", () => {
-    renderizar(URL_SIMPLES);
-    fireEvent.click(screen.getByRole("switch", { name: /^multa$/i }));
+    fireEvent.click(screen.getByRole("switch", { name: /cumprimento de sentença/i }));
+    digitar(/^multa do art\. 523 \(%\)$/i, "");
+    digitar(/^honorários do art\. 523 \(%\)$/i, "");
     fireEvent.click(botao(/gerar cálculo/i));
 
     expect(
-      screen.getByText(/informe o percentual da multa/i),
+      screen.getByText(/art\. 523: informe o percentual da multa e\/ou dos honorários/i),
     ).toBeTruthy();
   });
-
   it("pagamento é anexado uma única vez mesmo com duas verbas", async () => {
     renderizar(URL_SIMPLES);
     digitar(/^nome \/ descrição/i, "Duas linhas com pagamento");

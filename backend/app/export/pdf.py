@@ -1462,6 +1462,85 @@ def _tabela_pagamentos(
     return tabela
 
 
+def _tabela_imputacao(
+    imputacoes: list[dict],
+    estilos: dict[str, ParagraphStyle],
+    largura: float,
+) -> Table:
+    """Pagamentos abatidos na data: valor pago, atualização e o que quitou."""
+    colunas = [
+        ("Data", 22, "cen"),
+        ("Valor pago", 26, "dir"),
+        ("Fator até a data final", 24, "dir"),
+        ("Valor atualizado", 28, "dir"),
+        ("Quitou juros", 26, "dir"),
+        ("Quitou principal", 28, "dir"),
+        ("Descrição", 32, "esq"),
+    ]
+    estilo_cab = {
+        "cen": estilos["cab_med_cen"],
+        "dir": estilos["cab_med_dir"],
+        "esq": estilos["cab_med"],
+    }
+    estilo_celula = {
+        "cen": estilos["celula_med_cen"],
+        "dir": estilos["celula_med_dir"],
+        "esq": estilos["celula_med"],
+    }
+    dados = [
+        [_p(nome, estilo_cab[alinhamento]) for nome, _, alinhamento in colunas]
+    ]
+    for item in imputacoes:
+        itens = item.get("itens") or []
+        juros = sum((dec_memoria(i.get("juros")) or Decimal("0") for i in itens), Decimal("0"))
+        principal = sum(
+            (dec_memoria(i.get("principal")) or Decimal("0") for i in itens), Decimal("0")
+        )
+        fatores = sorted({i.get("fator") for i in itens if i.get("fator")})
+        descricao = item.get("descricao") or "—"
+        if dec_memoria(item.get("encargos")):
+            descricao += f" (quitou também {brl_memoria(item.get('encargos'))} de multa/honorários)"
+        valores = {
+            "Data": _data_br(item.get("data")),
+            "Valor pago": brl_memoria(item.get("valor")),
+            "Fator até a data final": ", ".join(
+                f"{Decimal(f):.6f}".replace(".", ",") for f in fatores
+            ) or "—",
+            "Valor atualizado": _brl_negativo(item.get("valor_atualizado")),
+            "Quitou juros": brl_memoria(juros),
+            "Quitou principal": brl_memoria(principal),
+            "Descrição": descricao,
+        }
+        dados.append(
+            [
+                _p(valores[nome], estilo_celula[alinhamento])
+                for nome, _, alinhamento in colunas
+            ]
+        )
+    larguras = [larg * mm for _, larg, _ in colunas]
+    fator = largura / sum(larguras)
+    tabela = Table(
+        dados, colWidths=[w * fator for w in larguras], repeatRows=1, hAlign="LEFT"
+    )
+    tabela.setStyle(_estilo_tabela(1))
+    return tabela
+
+
+FORMA_DEDUCAO_NOMINAL = (
+    "Cada pagamento foi somado aos pagamentos da respectiva parcela e deduzido "
+    "diretamente do total já apurado; o saldo é o total menos os pagamentos registrados."
+)
+FORMA_DEDUCAO_DATA_PAGAMENTO = (
+    "Cada pagamento foi abatido na data em que foi feito (art. 354 do Código Civil): "
+    "primeiro quitou os juros vencidos até aquela data e depois o principal corrigido, "
+    "começando pelo valor mais antigo. O principal que restou continuou corrigido e com "
+    "juros até a data final. Para comparar valores da mesma época, o pagamento foi "
+    "corrigido da sua data até a data final pelo mesmo índice da parcela. Multa e "
+    "honorários incidem sobre o débito apurado sem a dedução dos pagamentos; o valor que "
+    "exceder principal e juros abate multa e honorários."
+)
+
+
 def _brl_negativo(valor: object | None) -> str:
     decimal = dec_memoria(valor)
     if decimal is None:
@@ -1614,7 +1693,7 @@ def _metodologia_calculo(memoria: dict, estilos: dict[str, ParagraphStyle], larg
         )
         historia.append(_tabela_pares([
             ("Lançamentos considerados", lista),
-            ("Forma de dedução", "Cada pagamento foi somado aos pagamentos da respectiva parcela e deduzido diretamente do total já apurado; o saldo é o total menos os pagamentos registrados."),
+            ("Forma de dedução", FORMA_DEDUCAO_DATA_PAGAMENTO if memoria.get("imputacao_pagamentos") else FORMA_DEDUCAO_NOMINAL),
         ], estilos, largura_rotulo=44 * mm, largura_total=largura))
     else:
         historia.append(_p("Não há pagamentos ou abatimentos individualizados na memória para dedução.", estilos["corpo_fraco"]))
@@ -2319,7 +2398,10 @@ def _historia_civel(memoria: dict) -> list:
     pagamentos = pagamentos_efetivos(criterios, parcelas)
     if pagamentos or _tem_valor(resumo.get("pagamentos")):
         fechamento: list = []
-        if pagamentos:
+        imputacoes = memoria.get("imputacao_pagamentos") or []
+        if imputacoes:
+            fechamento.append(_tabela_imputacao(imputacoes, estilos, LARGURA))
+        elif pagamentos:
             fechamento.append(
                 _tabela_pagamentos(
                     pagamentos, estilos, LARGURA, como_abatimento=True

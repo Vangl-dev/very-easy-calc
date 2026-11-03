@@ -15,6 +15,8 @@ class ConfiguracaoCalculo:
     juros: ConfigJuros = field(default_factory=ConfigJuros)
     multa: ConfigEncargo = field(default_factory=ConfigEncargo)
     honorarios: ConfigEncargo = field(default_factory=ConfigEncargo)
+    criterio_pagamentos: str = "nominal"
+    """``nominal`` (legado: deduz o valor pago do total) ou ``data_pagamento``."""
 
     def __post_init__(self) -> None:
         if isinstance(self.data_base, str):

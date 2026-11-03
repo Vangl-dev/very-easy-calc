@@ -6,6 +6,12 @@ from decimal import Decimal
 
 from app.core.money import round_brl
 from app.engine.configuracao import ConfiguracaoCalculo
+from app.engine.imputacao import (
+    CRITERIO_DATA_PAGAMENTO,
+    CRITERIOS_PAGAMENTO,
+    ImputacaoPagamento,
+    imputar_pagamentos,
+)
 from app.engine.juros import (
     MODALIDADE_REGIMES,
     MODALIDADE_TAXA_LEGAL,
@@ -67,6 +73,7 @@ class ResultadoCalculo:
     resumo: ResumoCalculo
     bases: tuple[BaseUtilizada, ...]
     avisos: tuple[str, ...] = ()
+    imputacoes: tuple[ImputacaoPagamento, ...] = ()
 
 
 def _base_utilizada(key: str, papel: str) -> BaseUtilizada:
@@ -160,7 +167,19 @@ def calcular(
     if len(numeros) != len(set(numeros)):
         raise ValueError("número de parcela repetido")
 
-    resultados = tuple(calcular_parcela(p, configuracao=configuracao) for p in entradas)
+    if configuracao.criterio_pagamentos not in CRITERIOS_PAGAMENTO:
+        raise ValueError(
+            f"critério de pagamentos inválido: {configuracao.criterio_pagamentos!r}"
+        )
+    imputacoes: tuple[ImputacaoPagamento, ...] = ()
+    if configuracao.criterio_pagamentos == CRITERIO_DATA_PAGAMENTO:
+        brutos = tuple(
+            calcular_parcela(replace(p, pagamentos=()), configuracao=configuracao)
+            for p in entradas
+        )
+        resultados, imputacoes = imputar_pagamentos(configuracao, entradas, brutos)
+    else:
+        resultados = tuple(calcular_parcela(p, configuracao=configuracao) for p in entradas)
 
     # Composição no total vem da semântica explícita da verba (entra_no_total).
     # A verba-base continua existindo e alimentando as derivadas; ela entra na
@@ -209,4 +228,5 @@ def calcular(
         resumo=resumo,
         bases=coletar_bases(configuracao, entradas, resultados),
         avisos=tuple(avisos),
+        imputacoes=imputacoes,
     )
